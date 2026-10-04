@@ -30,7 +30,13 @@ def cmd_fetch_chat_id(args: argparse.Namespace) -> None:
     except Exception as exc:  # noqa: BLE001 -- surface any Telegram/network error plainly
         console.print(f"[red]{exc}[/red]")
         sys.exit(1)
-    set_key(str(config.PROJECT_ROOT / ".env"), "TELEGRAM_CHAT_ID", str(chat_id))
+    # quote_mode="never" -- the default quotes the value (e.g. '8421163775'),
+    # which python-dotenv/config.py parse correctly either way, but a naive
+    # `grep | cut` read of .env (e.g. when wiring up a CI secret by hand)
+    # copies the quote characters along with it, producing an invalid value
+    # downstream. Found live: that exact mistake broke the chat_id GitHub
+    # Actions was using, and Telegram's API rejected it with a 400.
+    set_key(str(config.PROJECT_ROOT / ".env"), "TELEGRAM_CHAT_ID", str(chat_id), quote_mode="never")
     console.print(f"[green]Found chat id {chat_id} and saved it to .env.[/green]")
 
 
