@@ -7,7 +7,9 @@ child-labor-law hour limits, no LinkedIn automation, human-reviewed outreach
 only, etc.).
 
 Built in phases -- see `C:\Users\rro\.claude\plans\rustling-inventing-petal.md`
-for the full plan. **Phases 1-4 (target company list, job scanner, people finder, drafting) are done.**
+for the full plan. **Phases 1-5 (target company list, job scanner, people finder,
+drafting, apply assist) are done**, plus a GitHub Actions workflow that runs
+the daily scan even when your laptop is off (see below).
 
 ## One-time setup (PowerShell)
 
@@ -219,6 +221,66 @@ ever messages through Gmail drafts you review and send by hand, and the
 only data sources are each company's own website (Phase 3) and whatever
 you add by hand. Nothing here touches LinkedIn, logged in or not.
 
+## Phase 5: Apply assist
+
+Opens a real, visible browser (Playwright) on a posting's actual
+application page, fills in the fields we have real values for, attaches a
+resume if one exists, and then **pauses** -- `apply_assist/playwright_fill.py`
+never calls a click method on anything at all (enforced by a test that
+greps the file's source), so it can never hit Submit. You review everything
+in the still-open window and submit it yourself.
+
+```powershell
+# One-time: install the Chromium browser Playwright drives (~200MB download)
+playwright install chromium
+
+python -m internship_hunter.apply_assist.cli fill 44
+```
+
+Only fills a short allow-list of unambiguous fields -- first/last/full name,
+email, phone, GitHub, portfolio/website, current location -- pulled live
+from `about_me.md`/`resume.txt`, never a second copy of that data. It
+**never** touches LinkedIn fields (he doesn't have one), "current company"
+(he has none), cover letters, or any screening/EEO/clearance/work-
+authorization question -- those need real judgment, so they're left for you
+to answer, and get listed in the output so nothing is silently skipped.
+Put a PDF resume at `profile/resume.pdf` to enable the attach-resume step;
+without one, that step is skipped with a clear message.
+
+Two vendor quirks this handles (found by inspecting real live postings, not
+assumed): Greenhouse's required-field asterisk ("First Name*") is part of
+the visible label but not the input's actual accessible name, so the lookup
+strips it; Lever's application form lives at a separate `<posting-url>/apply`
+page, not the posting page itself.
+
+## Always-on scanning (GitHub Actions)
+
+The daily scan + Telegram digest also runs on a schedule in GitHub Actions
+(`.github/workflows/daily-scan.yml`, ~8am Central daily, plus a manual
+"Run workflow" button on the Actions tab) -- so you still get notified about
+new postings even with your laptop off. Phases 4 and 5 (Gmail drafts,
+apply-assist) stay local-only on purpose: drafting needs your OAuth session
+and apply-assist needs you physically watching a browser, so neither makes
+sense to run unattended.
+
+How it works: the repo is **private** on GitHub, `TELEGRAM_BOT_TOKEN` and
+`TELEGRAM_CHAT_ID` are stored as encrypted repository secrets (Settings ->
+Secrets and variables -> Actions) rather than committed, and
+`data/tracker.db` is the one exception to `data/` being gitignored -- it
+gets committed back after each run so the workflow remembers which
+postings it already saw (a fresh GitHub-hosted runner has no other
+persistence between runs). Everything else that's secret (`.env`,
+`credentials.json`, `token.json`, `profile/resume.*`) stays out of git
+entirely, same as running locally.
+
+If you ever need to change a secret: `gh secret set TELEGRAM_CHAT_ID` --
+pipe in the value from `python -c "from internship_hunter import config;
+print(config.TELEGRAM_CHAT_ID)"` rather than grepping `.env` directly. A
+raw `grep .env | cut -d= -f2-` copies any quote characters dotenv wrote
+around the value literally, which is exactly what broke this the first
+time (Telegram rejected a chat_id wrapped in stray quote marks with a silent
+400).
+
 ## Running tests
 
 ```powershell
@@ -237,7 +299,7 @@ internship_hunter/
   notify/           # Telegram status pushes (new postings, reminders, weekly digest)
   people/           # Phase 3: people finder (people_finder.py, cli.py)
   drafting/         # Phase 4: outreach drafting + Gmail drafts (compose.py, daily_cap.py, gmail_client.py, cli.py)
-  apply_assist/      # Phase 5: Playwright prefill (not built yet)
+  apply_assist/      # Phase 5: Playwright prefill (profile_fields.py, field_map.py, playwright_fill.py, cli.py)
   routes/            # Phase 7: weekly "other routes" report (not built yet)
   dashboard/         # Phase 6: Streamlit tracker (not built yet)
 tests/               # pytest, one file per module
