@@ -1,0 +1,14 @@
+.env
+data/*
+*.db
+__pycache__/
+.venv/
+profile/resume.*
+credentials.json
+token.json
+lever_out.json
+
+# tracker.db IS committed on purpose -- it's how the GitHub Actions
+# scanner workflow remembers which postings it already saw, since each
+# scheduled run starts from a fresh checkout with no other persistence.
+!data/tracker.db
