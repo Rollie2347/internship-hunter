@@ -1,0 +1,46 @@
+name: Daily job scan
+
+on:
+  schedule:
+    # 13:00 UTC = 8am Central (CDT, summer) / 7am Central (CST, winter).
+    # Cron doesn't know about daylight saving -- this drifts an hour twice
+    # a year, which is fine for a "sometime in the morning" digest.
+    - cron: "0 13 * * *"
+  workflow_dispatch: {}  # lets you trigger a run manually from the Actions tab
+
+permissions:
+  contents: write  # needed to commit tracker.db back so "new today" stays accurate
+
+concurrency:
+  group: daily-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Load seed companies (safe to re-run, skips duplicates)
+        run: python -m internship_hunter.companies.cli load-seed
+
+      - name: Run the scanner and send the Telegram digest
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m internship_hunter.scanner.scan
+
+      - name: Commit updated tracker.db
+        run: |
+          git config user.name "internship-hunter-bot"
+          git config user.email "actions@github.com"
+          git add data/tracker.db
+          git diff --staged --quiet || git commit -m "Daily scan: $(date -u +%Y-%m-%d)"
+          git push
