@@ -60,6 +60,11 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 # and /li can ask for more, up to the hard caps (DAILY_DRAFT_CAP,
 # LINKEDIN_DAILY_CAP).
 OUTREACH_PER_DAY = int(os.environ.get("OUTREACH_PER_DAY", "10"))
+# The hour (this PC's clock, 0-23) the day's people are sent: 7 = 7 AM. The
+# slow preparation -- reading every job board, looking for new people --
+# runs an hour earlier, so the cards themselves arrive on time. If the PC
+# was off or asleep then, both happen as soon as it's back.
+DAILY_RUN_HOUR = int(os.environ.get("DAILY_RUN_HOUR", "7"))
 
 # Optional. Hunter.io Domain Search only (people/hunter.py) -- never its
 # Email Finder, which guesses. The free plan allows few searches a month.

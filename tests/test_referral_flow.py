@@ -201,6 +201,33 @@ def test_a_failure_in_the_email_half_does_not_stop_the_linkedin_cards(conn, prof
     assert [m.channel for m in db.list_messages(conn)] == ["linkedin"]
 
 
+def test_the_days_people_go_out_at_seven_and_the_slow_prep_an_hour_before(conn, profile, monkeypatch):
+    from datetime import datetime
+    from internship_hunter.scanner import scan
+
+    did = []
+    monkeypatch.setattr(scan, "run_scan", lambda conn: did.append("scan") or [])
+    monkeypatch.setattr(bot, "find_new_people", lambda *a, **k: did.append("people") or 0)
+    monkeypatch.setattr(bot, "send_daily_outreach", lambda *a, **k: did.append("cards") or 0)
+    outbox = Outbox()
+    day = lambda hour, minute=0: datetime(2026, 10, 9, hour, minute)
+
+    # 5:59 AM: nothing yet.
+    assert not bot.run_daily_prep(conn, outbox, now=day(5, 59)) and not bot.run_daily(conn, outbox, now=day(5, 59))
+    # 6 AM: the scan and people search, but no cards.
+    assert bot.run_daily_prep(conn, outbox, now=day(6)) and not bot.run_daily(conn, outbox, now=day(6, 59))
+    assert did == ["scan", "people"]
+    # 7 AM: the cards, once.
+    assert bot.run_daily(conn, outbox, now=day(7)) and not bot.run_daily(conn, outbox, now=day(7, 1))
+    assert not bot.run_daily_prep(conn, outbox, now=day(7, 1))
+    assert did == ["scan", "people", "cards"]
+    # PC was off until the afternoon of the next day: both happen then, prep first.
+    did.clear()
+    late = datetime(2026, 10, 10, 15, 30)
+    assert bot.run_daily_prep(conn, outbox, now=late) and bot.run_daily(conn, outbox, now=late)
+    assert did == ["scan", "people", "cards"]
+
+
 def test_the_daily_run_sends_people_and_no_application_cards(conn, profile, gmail, monkeypatch):
     company = add_company(conn)
     add_contact(conn, company, "A One")

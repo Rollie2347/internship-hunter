@@ -15,7 +15,7 @@ applications. It works one pipeline:
 
 Leave the bot running: in a PowerShell window, `cd C:\Users\rro\Documents\internship-hunter`
 then `.\start_bot.ps1` (see "Keeping the bot running").
-Every day it sends you **ten people** to write to (`OUTREACH_PER_DAY` in `.env`), about
+Every day at **7 AM** (`DAILY_RUN_HOUR` in `.env`) it sends you **ten people** to write to (`OUTREACH_PER_DAY` in `.env`), about
 20-30 minutes of work. It prepares them on its own; nothing goes out until you tap or paste:
 
 | What arrives | When | What you do |

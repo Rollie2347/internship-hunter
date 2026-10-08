@@ -7,9 +7,9 @@ Redesigned 2026-10-08 around referrals: the aim is no longer to apply to
 postings but to turn the right people into people who will vouch for him.
 
 What it does, in a loop:
-  1. Once a day: reads the job boards (only as a "who is hiring" signal),
-     looks for people at companies it hasn't checked yet, then puts
-     OUTREACH_PER_DAY (5) people in front of him -- follow-ups that are
+  1. Once a day: at 6 AM reads the job boards (only as a "who is hiring"
+     signal) and looks for people at companies it hasn't checked yet; at
+     7 AM (DAILY_RUN_HOUR) puts OUTREACH_PER_DAY (10) people in front of him -- follow-ups that are
      due first, then an email draft for anyone with a published address,
      then LinkedIn cards (a search link + a note he pastes himself; the
      bot never touches linkedin.com -- see linkedin_assist/) -- then the
@@ -33,7 +33,7 @@ from __future__ import annotations
 import re
 import time
 import traceback
-from datetime import date
+from datetime import date, datetime
 
 import requests
 
@@ -863,16 +863,21 @@ def handle_update(conn, update: dict, send=telegram_client.send_message) -> None
         handle_command(conn, message["text"], send)
 
 
-def run_daily(conn, send=telegram_client.send_message, today: date | None = None) -> bool:
-    """Once per calendar day: scan (as a hiring signal), find people,
-    today's five people to write to, then the status update. Returns True if it ran. The date is recorded first
-    so a failure partway can't trigger a second batch the same day."""
-    today_text = (today or date.today()).isoformat()
-    if db.get_meta(conn, "last_daily_run") == today_text:
+def _local_now(now: datetime | None) -> datetime:
+    return now or datetime.now()
+
+
+def run_daily_prep(conn, send=telegram_client.send_message, now: datetime | None = None) -> bool:
+    """Once per calendar day, from an hour before DAILY_RUN_HOUR: read
+    every job board (the hiring signal) and look for new people and
+    published emails. It takes several minutes and the bot can't answer
+    taps meanwhile, which is why it is done before the cards go out, not
+    after. Returns True if it ran."""
+    now = _local_now(now)
+    today_text = now.date().isoformat()
+    if now.hour < max(0, config.DAILY_RUN_HOUR - 1) or db.get_meta(conn, "last_prep_run") == today_text:
         return False
-    db.set_meta(conn, "last_daily_run", today_text)
-    # Fresh postings first: read every company's public job feed. This is
-    # what keeps the queue current without anyone running the scanner by hand.
+    db.set_meta(conn, "last_prep_run", today_text)
     try:
         from internship_hunter.scanner import scan
 
@@ -891,6 +896,24 @@ def run_daily(conn, send=telegram_client.send_message, today: date | None = None
         find_emails_with_hunter(conn)
     except Exception as exc:  # noqa: BLE001
         send(f"Couldn't look up emails with Hunter today: {exc}")
+    return True
+
+
+def run_daily(conn, send=telegram_client.send_message, today: date | None = None, now: datetime | None = None) -> bool:
+    """Once per calendar day, at DAILY_RUN_HOUR (7 AM) or as soon after as
+    the PC is on: reminders, today's people to write to, then the status
+    update. Returns True if it ran. The date is recorded first so a
+    failure partway can't trigger a second batch the same day. (`today`
+    alone, as tests pass it, skips the clock check.)"""
+    if today is None:
+        now = _local_now(now)
+        if now.hour < config.DAILY_RUN_HOUR:
+            return False
+        today = now.date()
+    today_text = today.isoformat()
+    if db.get_meta(conn, "last_daily_run") == today_text:
+        return False
+    db.set_meta(conn, "last_daily_run", today_text)
     # No application cards here any more: he asks for those (/more, /apply).
     try:
         send_linkedin_reminders(conn, send, today)
@@ -918,6 +941,7 @@ def run_forever(conn) -> None:
             except Exception:  # noqa: BLE001 -- e.g. offline; try again next round
                 pass
         try:
+            run_daily_prep(conn)
             run_daily(conn)
             updates = telegram_client.get_updates(offset)
         except requests.RequestException:

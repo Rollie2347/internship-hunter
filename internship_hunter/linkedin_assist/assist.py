@@ -75,7 +75,7 @@ def link_for(contact: Contact, company: Company) -> str:
 
 def cards_today(conn) -> int:
     return conn.execute(
-        "SELECT COUNT(*) AS n FROM messages WHERE channel = ? AND date(created_at) = date('now')", (CHANNEL,)
+        "SELECT COUNT(*) AS n FROM messages WHERE channel = ? AND date(created_at, 'localtime') = date('now', 'localtime')", (CHANNEL,)
     ).fetchone()["n"]
 
 

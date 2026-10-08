@@ -12,7 +12,7 @@ The student decided the application route doesn't work for a high schooler (near
 posting requires college enrollment) and that the tool should be built around referrals.
 - **The pipeline is: contacted -> replied -> call -> referred.** `/status` and the dashboard
   lead with those four numbers. Applications are a side tool.
-- **Ten people a day** (`OUTREACH_PER_DAY`; the student set 5, then 10, on 2026-10-08). The
+- **Ten people a day, at 7 AM** (`DAILY_RUN_HOUR`; the slow scan and people search run at 6 AM so the cards arrive on time) (`OUTREACH_PER_DAY`; the student set 5, then 10, on 2026-10-08). The
   bot *prepares* ten on its own -- it never sends one: an email goes out only on his Send now
   tap, and a LinkedIn request only when he pastes it himself (constraints 4 and 5). Beyond the ten, `/pitch`, `/linkedin`, `/li` and `/warm` add more when he asks, up to the hard caps.
 - **One channel per person, picked by what is published:** a person with a published email

@@ -14,10 +14,10 @@ class DailyCapReached(RuntimeError):
 
 def drafts_created_today(conn) -> int:
     emails = conn.execute(
-        "SELECT COUNT(*) AS n FROM messages WHERE channel = 'email' AND date(created_at) = date('now')"
+        "SELECT COUNT(*) AS n FROM messages WHERE channel = 'email' AND date(created_at, 'localtime') = date('now', 'localtime')"
     ).fetchone()
     cards = conn.execute(
-        "SELECT COUNT(*) AS n FROM applications WHERE date(proposed_at) = date('now')"
+        "SELECT COUNT(*) AS n FROM applications WHERE date(proposed_at, 'localtime') = date('now', 'localtime')"
     ).fetchone()
     return emails["n"] + cards["n"]
 
@@ -25,7 +25,7 @@ def drafts_created_today(conn) -> int:
 def outreach_today(conn) -> int:
     """People put in front of him today: email drafts plus LinkedIn cards."""
     return conn.execute(
-        "SELECT COUNT(*) AS n FROM messages WHERE channel IN ('email', 'linkedin') AND date(created_at) = date('now')"
+        "SELECT COUNT(*) AS n FROM messages WHERE channel IN ('email', 'linkedin') AND date(created_at, 'localtime') = date('now', 'localtime')"
     ).fetchone()["n"]
 
 
