@@ -22,3 +22,18 @@ def build_client(console=None) -> anthropic.Anthropic:
             print(message)
         sys.exit(1)
     return anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+
+
+class NoAnswer(RuntimeError):
+    """Claude returned no usable answer (it ran out of output tokens, or declined)."""
+
+
+def parsed(response):
+    """The structured answer from client.messages.parse(), or a clear error
+    saying why there isn't one -- instead of an AttributeError on None
+    somewhere further down."""
+    answer = getattr(response, "parsed_output", None)
+    if answer is None:
+        reason = getattr(response, "stop_reason", None) or "unknown reason"
+        raise NoAnswer(f"Claude returned no answer ({reason}). Nothing was drafted; try again.")
+    return answer

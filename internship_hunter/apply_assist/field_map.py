@@ -42,6 +42,8 @@ LABEL_KEYWORD_MAP: list[tuple[tuple[str, ...], str]] = [
 # Lever uses name="resume". Neither has real <label> text pointing at it
 # (Greenhouse's visible text is just "Attach"/"Enter manually" toggle
 # buttons), so this can't be done through label matching at all.
+NOT_HOME_LOCATION_WORDS = ("preference", "preferred", "relocat", "willing", "which office", "desired", "work location")
+
 RESUME_FILE_SELECTORS = ["#resume", "input[name='resume']", "input[type='file']"]
 
 
@@ -49,6 +51,11 @@ def classify_label(label_text: str) -> Optional[str]:
     """Map one label's text to an ApplicantInfo field name, or
     RESUME_SENTINEL, or None if it's not something we auto-fill."""
     text = label_text.lower()
+    # "What is your top location preference?" asks which OFFICE he wants,
+    # not where he lives -- a live Anduril form got his home state typed
+    # into it because the label contains "location".
+    if any(word in text for word in NOT_HOME_LOCATION_WORDS):
+        return None
     for keywords, field in LABEL_KEYWORD_MAP:
         if any(kw in text for kw in keywords):
             return field

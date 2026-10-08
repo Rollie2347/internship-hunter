@@ -196,3 +196,39 @@ def detect_and_fetch(company_name: str) -> tuple[list[RawPosting], list[tuple[st
                 confirmed.append((ats_type, slug))
                 all_postings.extend(result)
     return all_postings, confirmed
+
+
+def _html_to_text(html_text: str) -> str:
+    from html import unescape
+
+    from bs4 import BeautifulSoup
+
+    # Greenhouse double-encodes: the JSON holds escaped HTML ("&lt;p&gt;").
+    return " ".join(BeautifulSoup(unescape(html_text or ""), "html.parser").get_text(separator=" ").split())
+
+
+def fetch_posting_text(ats_type: str, ats_slug: str, external_id: str) -> str:
+    """The full description + requirements of ONE posting, as plain text,
+    from the same public feeds the scanner reads. '' if it can't be fetched
+    (e.g. the posting was taken down). Used to check who may actually apply
+    -- see scanner/eligibility.py."""
+    try:
+        if ats_type == "greenhouse":
+            resp = requests.get(f"{GREENHOUSE_URL.format(slug=ats_slug)}/{external_id}", timeout=REQUEST_TIMEOUT)
+            return _html_to_text(resp.json().get("content", "")) if resp.status_code == 200 else ""
+        if ats_type == "lever":
+            resp = requests.get(f"https://api.lever.co/v0/postings/{ats_slug}/{external_id}", timeout=REQUEST_TIMEOUT)
+            if resp.status_code != 200:
+                return ""
+            job = resp.json()
+            lists = " ".join(f"{i.get('text', '')} {_html_to_text(i.get('content', ''))}" for i in (job.get("lists") or []))
+            return " ".join([job.get("descriptionPlain", "") or "", lists, job.get("additionalPlain", "") or ""]).strip()
+        if ats_type == "ashby":
+            resp = requests.get(ASHBY_URL.format(slug=ats_slug), timeout=REQUEST_TIMEOUT)
+            if resp.status_code != 200:
+                return ""
+            job = next((j for j in resp.json().get("jobs", []) if str(j.get("id")) == str(external_id)), None)
+            return (job or {}).get("descriptionPlain", "") or ""
+    except (requests.RequestException, ValueError):
+        return ""
+    return ""

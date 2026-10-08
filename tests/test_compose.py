@@ -90,6 +90,7 @@ def test_compose_email_calls_claude_with_expected_model_and_system_prompt():
     assert client.capture["model"] == compose.config.DRAFTING_MODEL
     assert "150 words" in client.capture["system"]
     assert "15-year-old" in client.capture["system"]
+    assert "internship so he can LEARN" in client.capture["system"]   # he asked for this
     assert client.capture["output_format"] is compose.DraftEmail
 
 
@@ -135,3 +136,24 @@ def test_validate_draft_passes_a_compliant_draft():
     )
     warnings = compose.validate_draft(draft)
     assert warnings == []
+
+
+def test_build_user_content_includes_follow_up_context_when_given():
+    content = compose.build_user_content("p", "r", "t", follow_up_context="FOLLOW_UP_MARKER")
+    assert "FOLLOW_UP_MARKER" in content
+    assert "Follow-up context" in content
+
+
+def test_build_user_content_omits_follow_up_section_when_not_given():
+    content = compose.build_user_content("p", "r", "t")
+    assert "Follow-up context" not in content
+
+
+def test_compose_email_passes_through_follow_up_context():
+    fake_draft = compose.DraftEmail(subject="x", body="Hi, I'm 15... http://x.com")
+    client = FakeAnthropicClient(fake_draft)
+    company = make_company()
+
+    compose.compose_email(client, "profile", "resume", company, follow_up_context="Sent 7 days ago, no reply.")
+
+    assert "Sent 7 days ago, no reply." in client.capture["messages"][0]["content"]

@@ -7,8 +7,11 @@ profile/resume.*
 credentials.json
 token.json
 lever_out.json
+*.log
+.pytest_cache/
 
-# tracker.db IS committed on purpose -- it's how the GitHub Actions
-# scanner workflow remembers which postings it already saw, since each
-# scheduled run starts from a fresh checkout with no other persistence.
-!data/tracker.db
+# The cloud scanner's own database IS committed on purpose -- it's how the
+# GitHub Actions workflow remembers which postings it already saw, since each
+# scheduled run starts from a fresh checkout. The PC's own tracker
+# (data/tracker.db: applications, contacts, sent emails) is NOT in git.
+!data/cloud_tracker.db

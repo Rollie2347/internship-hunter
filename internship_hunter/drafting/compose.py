@@ -15,7 +15,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from internship_hunter import config
+from internship_hunter import anthropic_client, config
 from internship_hunter.models import Company, Contact, Posting
 
 
@@ -31,8 +31,13 @@ profile below. Follow these rules exactly:
 1. State plainly that he is a 15-year-old high school student. This is the hook, not something \
 to hide or soften -- never imply he is older, in college, or already working professionally.
 2. Keep the body under 150 words total.
+2a. Say plainly, early, that he is looking for a year-long internship so he can LEARN, and name \
+what he wants to learn -- which should be the kind of work this person or company does. He asked \
+for this himself. It is a statement of why he is writing, not the ask (rule 6 is the ask), and it \
+should read as someone who wants to learn by doing real work, not someone who wants a title.
 3. Mention one specific, real detail about the company or person's work (from the context \
-given below) -- not a generic compliment like "I love what you're building."
+given below) -- not a generic compliment like "I love what you're building," and not just their \
+job title repeated back to them. Tie it to what he wants to learn.
 4. Link exactly ONE project from the "Projects" section of the profile as proof of real work. \
 Copy its URL character-for-character from the profile text. If the most relevant project has \
 no real URL in the profile text (e.g. marked TODO), pick a different project that does have a \
@@ -46,7 +51,11 @@ internship hiring; "auto" means pick whichever of those three fits this specific
 Never combine more than one ask.
 7. Write in his voice: direct, specific, a little technical, not salesy. No corporate buzzwords, \
 no exclamation-point enthusiasm, no "I'd love the opportunity to..." filler.
-8. Return a subject line (short, specific, not clickbait) and the email body separately."""
+8. Return a subject line (short, specific, not clickbait) and the email body separately.
+9. If a "Follow-up context" is given below, this is a BUMP to an email already sent that got no \
+reply -- not a fresh pitch. Make it much shorter (2-4 sentences), reference that he reached out \
+before without quoting it verbatim, restate the same single ask plainly, and skip re-explaining \
+the project/company detail from scratch -- a brief, low-pressure nudge, not a repeat."""
 
 
 def build_target_context(
@@ -57,6 +66,14 @@ def build_target_context(
     """Describe who/what this email is about, from facts already on file --
     nothing here is left for the model to look up or guess."""
     lines = [f"Company: {company.name}", f"What they build: {company.what_they_build}", f"Why it fits him: {company.why_fit}"]
+    if company.state in config.PREFERRED_STATES:
+        # Without this a pitch just says "a student in Wisconsin", which reads
+        # as remote-only to a Colorado or Virginia company.
+        state_name = config.US_STATES[company.state]
+        lines.append(
+            f"Relocation fact (state it in one short clause): he lives in Wisconsin now and would "
+            f"move to {state_name}, where he has family to live with, to work in person."
+        )
     if contact is not None:
         lines.append(f"Writing to: {contact.name}, {contact.title}")
         lines.append(f"A specific, sourced fact about them: {contact.fact}")
@@ -71,14 +88,23 @@ def build_target_context(
 VALID_ASK_TYPES = ("auto", "call", "resume", "referral")
 
 
-def build_user_content(profile_text: str, resume_text: str, target_context: str, ask_type: str = "auto") -> str:
-    return (
+def build_user_content(
+    profile_text: str,
+    resume_text: str,
+    target_context: str,
+    ask_type: str = "auto",
+    follow_up_context: Optional[str] = None,
+) -> str:
+    content = (
         f"=== His profile (about_me.md) ===\n{profile_text}\n\n"
         f"=== His resume ===\n{resume_text}\n\n"
         f"=== Who this email is for ===\n{target_context}\n\n"
         f"=== Availability (use this fact, don't recompute it) ===\n{config.availability_statement()}\n\n"
         f"=== Ask type ===\n{ask_type}"
     )
+    if follow_up_context:
+        content += f"\n\n=== Follow-up context ===\n{follow_up_context}"
+    return content
 
 
 def compose_email(
@@ -89,19 +115,20 @@ def compose_email(
     contact: Optional[Contact] = None,
     posting: Optional[Posting] = None,
     ask_type: str = "auto",
+    follow_up_context: Optional[str] = None,
 ) -> DraftEmail:
     if ask_type not in VALID_ASK_TYPES:
         raise ValueError(f"ask_type must be one of {VALID_ASK_TYPES}, got {ask_type!r}")
     target_context = build_target_context(company, contact, posting)
-    user_content = build_user_content(profile_text, resume_text, target_context, ask_type)
+    user_content = build_user_content(profile_text, resume_text, target_context, ask_type, follow_up_context)
     response = client.messages.parse(
         model=config.DRAFTING_MODEL,
-        max_tokens=1024,
+        max_tokens=config.MAX_OUTPUT_TOKENS,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
         output_format=DraftEmail,
     )
-    return response.parsed_output
+    return anthropic_client.parsed(response)
 
 
 def validate_draft(draft: DraftEmail) -> list[str]:

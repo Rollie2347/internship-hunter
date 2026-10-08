@@ -3,7 +3,7 @@ import sqlite3
 import pytest
 
 from internship_hunter import db
-from internship_hunter.models import Company, Contact
+from internship_hunter.models import Company, Contact, Message
 
 
 @pytest.fixture
@@ -198,3 +198,66 @@ def test_init_db_migrates_a_column_added_after_table_creation(tmp_path):
     fetched = db.get_company_by_name(conn, "Migrated Co")
     assert fetched.team_url is None
     assert fetched.id == company_id
+
+
+# --- Messages ---
+
+def test_insert_and_get_message(conn):
+    company_id = db.insert_company(conn, make_company(name="Message Co"))
+    message = Message(company_id=company_id, channel="email", subject="Hi", body="Body text")
+    message_id = db.insert_message(conn, message)
+    assert message_id > 0
+
+    fetched = db.get_message(conn, message_id)
+    assert fetched.subject == "Hi"
+    assert fetched.status == "drafted"
+    assert fetched.sent_at is None
+
+
+def test_get_message_returns_none_when_missing(conn):
+    assert db.get_message(conn, 99999) is None
+
+
+def test_list_messages_filters_by_status_and_company(conn):
+    c1 = db.insert_company(conn, make_company(name="Msg Co A"))
+    c2 = db.insert_company(conn, make_company(name="Msg Co B"))
+    db.insert_message(conn, Message(company_id=c1, channel="email", subject="A1", body="x", status="drafted"))
+    db.insert_message(conn, Message(company_id=c1, channel="email", subject="A2", body="x", status="sent"))
+    db.insert_message(conn, Message(company_id=c2, channel="email", subject="B1", body="x", status="sent"))
+
+    assert len(db.list_messages(conn)) == 3
+    assert len(db.list_messages(conn, status="sent")) == 2
+    assert len(db.list_messages(conn, company_id=c1)) == 2
+    assert len(db.list_messages(conn, status="sent", company_id=c1)) == 1
+
+
+def test_update_message_status_sets_status_and_sent_at(conn):
+    company_id = db.insert_company(conn, make_company(name="Status Co"))
+    message_id = db.insert_message(conn, Message(company_id=company_id, channel="email", subject="Hi", body="x"))
+
+    assert db.update_message_status(conn, message_id, "sent", sent_at="2026-10-04 12:00:00") is True
+    fetched = db.get_message(conn, message_id)
+    assert fetched.status == "sent"
+    assert fetched.sent_at == "2026-10-04 12:00:00"
+
+
+def test_update_message_status_without_sent_at_leaves_it_unchanged(conn):
+    company_id = db.insert_company(conn, make_company(name="Status Co 2"))
+    message_id = db.insert_message(conn, Message(company_id=company_id, channel="email", subject="Hi", body="x"))
+    db.update_message_status(conn, message_id, "sent", sent_at="2026-10-04 12:00:00")
+
+    db.update_message_status(conn, message_id, "replied")
+    fetched = db.get_message(conn, message_id)
+    assert fetched.status == "replied"
+    assert fetched.sent_at == "2026-10-04 12:00:00"  # untouched
+
+
+def test_update_message_status_rejects_invalid_status(conn):
+    company_id = db.insert_company(conn, make_company(name="Status Co 3"))
+    message_id = db.insert_message(conn, Message(company_id=company_id, channel="email", subject="Hi", body="x"))
+    with pytest.raises(ValueError):
+        db.update_message_status(conn, message_id, "ghosted")
+
+
+def test_update_message_status_returns_false_for_missing_message(conn):
+    assert db.update_message_status(conn, 99999, "sent") is False

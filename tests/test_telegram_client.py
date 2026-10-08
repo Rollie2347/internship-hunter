@@ -43,7 +43,7 @@ def test_send_message_posts_text_and_chat_id(monkeypatch):
     result = telegram_client.send_message("hello there", chat_id="12345", bot_token="tok")
 
     assert captured["url"] == "https://api.telegram.org/bottok/sendMessage"
-    assert captured["json"] == {"chat_id": "12345", "text": "hello there"}
+    assert captured["json"] == {"chat_id": "12345", "text": "hello there", "disable_web_page_preview": True}
     assert result["ok"] is True
 
 
@@ -81,3 +81,42 @@ def test_fetch_latest_chat_id_raises_when_no_messages_yet(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="send it any"):
         telegram_client.fetch_latest_chat_id(bot_token="tok")
+
+
+class _Ok:
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return {"ok": True, "result": {"message_id": 1}}
+
+
+def test_send_message_retries_a_dropped_connection_but_never_a_timeout(monkeypatch):
+    import requests
+
+    monkeypatch.setattr(telegram_client, "RETRY_PAUSE_SECONDS", 0)
+    calls = []
+
+    def flaky(url, json=None, timeout=None):
+        calls.append(json["text"])
+        if len(calls) < 3:
+            raise requests.exceptions.ConnectionError("connection reset")
+        return _Ok()
+
+    monkeypatch.setattr(telegram_client.requests, "post", flaky)
+    assert telegram_client.send_message("hi", chat_id=1, bot_token="t")["ok"] is True
+    assert calls == ["hi", "hi", "hi"]
+
+    # A timeout may have been delivered, so it is not sent again.
+    calls.clear()
+
+    def slow(url, json=None, timeout=None):
+        calls.append(json["text"])
+        raise requests.exceptions.ReadTimeout("slow")
+
+    monkeypatch.setattr(telegram_client.requests, "post", slow)
+    try:
+        telegram_client.send_message("hi", chat_id=1, bot_token="t")
+    except requests.exceptions.Timeout:
+        pass
+    assert calls == ["hi"]

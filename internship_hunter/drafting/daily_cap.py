@@ -1,5 +1,7 @@
-"""Enforces CLAUDE.md's daily outreach cap (default 10) so every draft
-stays personal instead of turning this into a volume play."""
+"""Enforces the daily approval budget (default 25, DAILY_DRAFT_CAP in .env):
+outreach Gmail drafts plus application cards sent to Telegram, counted
+together, so one day never asks the student to review more than he can
+actually read."""
 
 from __future__ import annotations
 
@@ -11,10 +13,27 @@ class DailyCapReached(RuntimeError):
 
 
 def drafts_created_today(conn) -> int:
-    row = conn.execute(
+    emails = conn.execute(
         "SELECT COUNT(*) AS n FROM messages WHERE channel = 'email' AND date(created_at) = date('now')"
     ).fetchone()
-    return row["n"]
+    cards = conn.execute(
+        "SELECT COUNT(*) AS n FROM applications WHERE date(proposed_at) = date('now')"
+    ).fetchone()
+    return emails["n"] + cards["n"]
+
+
+def outreach_today(conn) -> int:
+    """People put in front of him today: email drafts plus LinkedIn cards."""
+    return conn.execute(
+        "SELECT COUNT(*) AS n FROM messages WHERE channel IN ('email', 'linkedin') AND date(created_at) = date('now')"
+    ).fetchone()["n"]
+
+
+def outreach_remaining(conn) -> int:
+    """How many more the bot may send on its own today (OUTREACH_PER_DAY,
+    default 5). Commands he types himself aren't held to this -- only to
+    the hard caps below."""
+    return max(0, config.OUTREACH_PER_DAY - outreach_today(conn))
 
 
 def remaining_today(conn, cap: int | None = None) -> int:
@@ -28,4 +47,6 @@ def enforce_daily_cap(conn, cap: int | None = None) -> None:
     call or creating a Gmail draft that then gets rejected."""
     if remaining_today(conn, cap) <= 0:
         cap = cap if cap is not None else config.DAILY_DRAFT_CAP
-        raise DailyCapReached(f"Already created {drafts_created_today(conn)} draft(s) today (cap is {cap}).")
+        raise DailyCapReached(
+            f"Already sent you {drafts_created_today(conn)} thing(s) to approve today (cap is {cap})."
+        )

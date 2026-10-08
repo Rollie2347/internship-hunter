@@ -109,3 +109,65 @@ def worth_notifying(
     if skill_match == "gap":
         return False
     return True
+
+
+def title_is_non_software(title: str) -> bool:
+    """True if the title itself names a hardware/business discipline. The
+    scanner's stored flag can't be trusted alone for old rows: "Electrical
+    Engineering Intern" got through because the keyword was "electrical
+    engineer", which a word-boundary match doesn't find inside "engineering"."""
+    return _contains_any(_normalize(title), config.SOFTWARE_EXCLUDE_KEYWORDS)
+
+
+def is_closed_to_high_schoolers(title: str) -> bool:
+    """True for "intern" postings whose title names a program he can't be
+    in at all -- e.g. SkillBridge is for military members leaving the
+    service, which the plain intern filter let through on a live Defense
+    Unicorns posting. Still stored; just never queued for approval."""
+    return _contains_any(_normalize(title), config.INELIGIBLE_PROGRAM_KEYWORDS)
+
+
+def _us_states_in(location: str) -> set[str]:
+    """Two-letter codes of every US state named in a location string, by
+    full name ("Colorado") or by postal code ("CO"). Postal codes are
+    matched case-sensitively so the ordinary words "in"/"or"/"me" inside a
+    location never count as Indiana/Oregon/Maine."""
+    found = set()
+    lowered = location.lower()
+    for code, name in config.US_STATES.items():
+        if re.search(rf"\b{re.escape(name.lower())}\b", lowered) or re.search(rf"\b{code}\b", location):
+            found.add(code)
+    if re.search(r"\bD\.C\.", location):
+        found.add("DC")
+    for city, code in config.US_CITY_STATES.items():
+        if re.search(rf"\b{re.escape(city)}\b", lowered):
+            found.add(code)
+    return found
+
+
+def offices_in_preferred_states(location: str) -> list[str]:
+    """The individual offices in a (possibly multi-city) location string
+    that are in Colorado or Virginia. An Anduril posting listed nine cities
+    in one string; only two of them were places he'd actually work."""
+    parts = [p.strip() for p in re.split(r"[;|]", location or "") if p.strip()]
+    return [p for p in parts if _us_states_in(p) & config.PREFERRED_STATES]
+
+
+def location_rank(location: str) -> int:
+    """Where a posting sits in the approval queue by location -- see the
+    table next to config.PREFERRED_STATES. A posting listing several
+    offices gets the rank of its best one."""
+    location = location or ""
+    states = _us_states_in(location)
+    if states & config.PREFERRED_STATES:
+        return 0
+    if states - {config.HOME_STATE}:
+        return 1
+    if config.HOME_STATE in states:
+        return 3
+    lowered = location.lower()
+    if not lowered.strip() or "remote" in lowered:
+        return 2
+    if "united states" in lowered:
+        return 1
+    return config.LOCATION_RANK_NOT_QUEUED

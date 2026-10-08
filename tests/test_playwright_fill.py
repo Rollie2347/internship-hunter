@@ -13,12 +13,26 @@ def make_posting(**overrides) -> Posting:
     return Posting(**defaults)
 
 
-def test_source_never_calls_click():
-    # CLAUDE.md constraint 4: never auto-submit. There's no element this
-    # file is allowed to click, so the simplest hard guarantee is that the
-    # word "click(" never appears in its source at all.
+def test_source_clicks_only_through_the_guarded_helper():
+    # CLAUDE.md constraint 4: never auto-submit. The file contains exactly
+    # one real click call, inside _safe_click, which first checks
+    # click_allowed -- so there is no way to click anything else.
     source = Path(playwright_fill.__file__).read_text(encoding="utf-8")
-    assert ".click(" not in source
+    assert source.count(".click(") == 1
+    guarded = source.split("def _safe_click")[1].split("\ndef ")[0]
+    assert "click_allowed(" in guarded and ".click(" in guarded
+    assert ".press(" not in source.replace("keyboard.press(\"Escape\")", "")
+
+
+def test_click_allowed_only_for_dropdowns_and_their_options():
+    assert playwright_fill.click_allowed("INPUT", "text", "combobox")
+    assert playwright_fill.click_allowed("DIV", "", "option")
+    # Never a button or a submit control, whatever role it claims.
+    assert not playwright_fill.click_allowed("BUTTON", "submit", "")
+    assert not playwright_fill.click_allowed("BUTTON", "", "option")
+    assert not playwright_fill.click_allowed("INPUT", "submit", "combobox")
+    assert not playwright_fill.click_allowed("A", "", "")
+    assert not playwright_fill.click_allowed("DIV", "", "button")
 
 
 def test_resolve_apply_url_appends_apply_for_lever():

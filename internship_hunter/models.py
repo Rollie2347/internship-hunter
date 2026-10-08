@@ -28,6 +28,7 @@ class Company:
     ats_slug: Optional[str] = None
     manual_check_needed: bool = False  # no ATS feed found -- check careers_url by hand
     team_url: Optional[str] = None  # self-detected team/about page, see people/people_finder.py
+    contact_email: Optional[str] = None  # an inbox published on the company's own site (careers@, info@)
     id: Optional[int] = None
     created_at: Optional[str] = None
 
@@ -52,6 +53,8 @@ class Posting:
     citizenship_required: bool = False
     skill_match: str = "unclear"  # "strong", "stretch", "gap", or "unclear"
     status: str = "new"
+    eligibility: Optional[str] = None  # None = not screened yet; see scanner/eligibility.py
+    eligibility_reason: str = ""
     first_seen_date: Optional[str] = None
     last_seen_date: Optional[str] = None
     id: Optional[int] = None
@@ -65,6 +68,9 @@ class Contact:
     source_url: str
     fact: str
     email: Optional[str] = None
+    email_source_url: Optional[str] = None  # the public page the email was read from
+    source_kind: str = "team_page"  # "team_page", "web" (people/web_search.py), "hunter" or "manual" (/li)
+    linkedin_url: Optional[str] = None  # only ever one the student pasted himself; never fetched
     id: Optional[int] = None
     found_at: Optional[str] = None
 
@@ -72,7 +78,7 @@ class Contact:
 @dataclass
 class Message:
     company_id: int
-    channel: str  # "email" or "application"
+    channel: str  # "email", "application", "linkedin" (connection note) or "linkedin_reply"
     subject: str
     body: str
     contact_id: Optional[int] = None
@@ -80,5 +86,21 @@ class Message:
     gmail_draft_id: Optional[str] = None
     status: str = "drafted"  # drafted -> sent -> replied/interviewing/rejected
     sent_at: Optional[str] = None
+    to_email: Optional[str] = None  # address on the draft; None = still blank
+    gmail_thread_id: Optional[str] = None  # set once sent; used to notice replies
+    reminded_at: Optional[str] = None  # LinkedIn only: when the one 7-day reminder went out
     id: Optional[int] = None
     created_at: Optional[str] = None
+
+
+@dataclass
+class Application:
+    posting_id: int
+    status: str = "proposed"  # see config.APPLICATION_STATUSES
+    answers: dict = field(default_factory=dict)  # form label -> drafted answer
+    left_for_you: list = field(default_factory=list)  # form labels the student answers himself
+    telegram_message_id: Optional[int] = None
+    proposed_at: Optional[str] = None
+    decided_at: Optional[str] = None
+    submitted_at: Optional[str] = None
+    id: Optional[int] = None

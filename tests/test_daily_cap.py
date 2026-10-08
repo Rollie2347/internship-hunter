@@ -1,8 +1,8 @@
 import pytest
 
-from internship_hunter import db
+from internship_hunter import config, db
 from internship_hunter.drafting import daily_cap
-from internship_hunter.models import Company
+from internship_hunter.models import Application, Company, Posting
 
 
 @pytest.fixture
@@ -69,9 +69,20 @@ def test_enforce_daily_cap_does_not_raise_when_under_cap(conn):
     daily_cap.enforce_daily_cap(conn, cap=3)  # should not raise
 
 
-def test_enforce_daily_cap_blocks_the_eleventh_draft_with_default_cap(conn):
+def test_enforce_daily_cap_blocks_one_past_the_default_cap(conn):
     company_id = make_company_id(conn)
-    for _ in range(10):
+    for _ in range(config.DAILY_DRAFT_CAP):
         insert_email_message(conn, company_id)
     with pytest.raises(daily_cap.DailyCapReached):
-        daily_cap.enforce_daily_cap(conn)  # uses config.DAILY_DRAFT_CAP default (10)
+        daily_cap.enforce_daily_cap(conn)  # uses config.DAILY_DRAFT_CAP
+
+
+def test_application_cards_count_toward_the_same_cap(conn):
+    company_id = make_company_id(conn)
+    posting_id, _ = db.upsert_posting(conn, Posting(
+        company_id=company_id, external_id="1", title="Software Intern",
+        location="Denver, CO", url="https://x.example/1", ats_source="greenhouse",
+    ))
+    db.insert_application(conn, Application(posting_id=posting_id))
+    insert_email_message(conn, company_id)
+    assert daily_cap.drafts_created_today(conn) == 2

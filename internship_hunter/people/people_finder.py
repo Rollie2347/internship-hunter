@@ -19,13 +19,15 @@ How a fact gets from a webpage into the database, in order:
 
 from __future__ import annotations
 
+import re
 from typing import Optional
+from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
 from pydantic import BaseModel
 
-from internship_hunter import config
+from internship_hunter import anthropic_client, config
 from internship_hunter.models import Contact
 
 REQUEST_TIMEOUT = 10
@@ -107,6 +109,75 @@ def fetch_page_text(url: str, max_chars: int = MAX_PAGE_CHARS) -> Optional[str]:
     return text[:max_chars]
 
 
+# Mailboxes that are not for a prospective intern to write to.
+SKIP_MAILBOXES = (
+    "privacy", "legal", "abuse", "security", "press", "media", "investor", "ir", "support", "sales",
+    "billing", "noreply", "no-reply", "donotreply", "dmca", "accessibility", "compliance", "webmaster",
+)
+# Best inbox first when a site publishes several.
+PREFERRED_MAILBOXES = (
+    "careers", "jobs", "recruiting", "recruiter", "talent", "hiring", "internships", "hr",
+    "hello", "info", "contact", "team",
+)
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+
+def company_domain(website: str) -> str:
+    host = urlparse(website if "//" in website else f"https://{website}").netloc.lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def find_published_emails(html: str, website: str) -> list[str]:
+    """Email addresses literally present in a page's HTML that are on the
+    company's OWN domain, best inbox first. Nothing is ever guessed or
+    pattern-built (no "first.last@") -- an address has to be published."""
+    domain = company_domain(website)
+    if not domain:
+        return []
+    found = []
+    for match in EMAIL_RE.findall(html or ""):
+        email = match.lower().rstrip(".")
+        mailbox, _, host = email.partition("@")
+        if host != domain and not host.endswith("." + domain):
+            continue
+        if mailbox in SKIP_MAILBOXES or email in found:
+            continue
+        found.append(email)
+    rank = lambda e: PREFERRED_MAILBOXES.index(e.split("@")[0]) if e.split("@")[0] in PREFERRED_MAILBOXES else len(PREFERRED_MAILBOXES)
+    return sorted(found, key=rank)
+
+
+def fetch_published_email(website: str, extra_urls: tuple = ()) -> Optional[str]:
+    """Look on the company's contact/careers/home pages for an inbox it
+    publishes. Returns None if it publishes none (most don't)."""
+    if not website:
+        return None
+    root = website.rstrip("/")
+    for url in [f"{root}/contact", f"{root}/contact-us", f"{root}/careers", root, *[u for u in extra_urls if u]]:
+        if "linkedin.com" in url.lower():
+            continue
+        try:
+            resp = requests.get(url, timeout=REQUEST_TIMEOUT, headers={"User-Agent": "Mozilla/5.0"})
+        except requests.RequestException:
+            continue
+        if resp.status_code >= 400:
+            continue
+        emails = [e for e in find_published_emails(resp.text, website) if is_general_inbox(e)]
+        if emails:
+            return emails[0]
+    return None
+
+
+def is_general_inbox(email: str) -> bool:
+    """True only for an inbox meant for people writing in (careers@,
+    info@, contact.us@). A first live run also turned up pr@,
+    employee-verifications@ and a GDPR support address -- all real, all the
+    wrong place to send an internship note -- so anything not on the
+    preferred list is rejected rather than listing every bad one."""
+    mailbox = re.sub(r"[._-]", "", email.split("@")[0].lower())
+    return mailbox in {re.sub(r"[._-]", "", m) for m in PREFERRED_MAILBOXES} | {"contactus", "joinus", "work", "people"}
+
+
 def build_user_content(company_name: str, url: str, page_text: str) -> str:
     return f"Company: {company_name}\nSource URL: {url}\n\nPage text:\n{page_text}"
 
@@ -117,12 +188,12 @@ def extract_people(client, company_name: str, url: str, page_text: str) -> list[
     can be tested by injecting a fake client."""
     response = client.messages.parse(
         model=config.PEOPLE_FINDER_MODEL,
-        max_tokens=1024,
+        max_tokens=config.MAX_OUTPUT_TOKENS,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": build_user_content(company_name, url, page_text)}],
         output_format=ExtractionResult,
     )
-    return response.parsed_output.people[: config.MAX_CONTACTS_PER_COMPANY]
+    return anthropic_client.parsed(response).people[: config.MAX_CONTACTS_PER_COMPANY]
 
 
 def to_contacts(people: list[ExtractedPerson], company_id: int, source_url: str) -> list[Contact]:

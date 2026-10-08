@@ -102,24 +102,53 @@ def cmd_draft(args: argparse.Namespace) -> None:
         gmail_draft_id=draft_id,
         status="drafted",
     )
-    conn.execute(
-        """
-        INSERT INTO messages (company_id, contact_id, posting_id, channel, subject, body, gmail_draft_id, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (message.company_id, message.contact_id, message.posting_id, message.channel, message.subject, message.body, message.gmail_draft_id, message.status),
-    )
-    conn.commit()
+    db.insert_message(conn, message)
 
     console.print(f"\n[green]Saved as a Gmail draft (id {draft_id}). Go review and send it yourself in Gmail.[/green]")
     console.print(f"[dim]{daily_cap.remaining_today(conn)} draft(s) left today.[/dim]")
 
 
+def cmd_batch(args: argparse.Namespace) -> None:
+    """Cold-pitch the next N people who haven't been written to yet."""
+    from internship_hunter.drafting import batch
+
+    conn = db.get_connection()
+    db.init_db(conn)
+    if not batch.next_contacts(conn, 1) and not batch.due_follow_ups(conn):
+        console.print(
+            "[yellow]Every Colorado/Virginia contact on file already has a draft.[/yellow] Find more people first:\n"
+            "  python -m internship_hunter.people.cli run"
+        )
+        return
+    client = anthropic_client.build_client(console)
+    created = batch.draft_batch(conn, client, gmail_client.get_service(), args.limit)
+    for d in created:
+        company, contact, message = d["company"], d["contact"], d["message"]
+        to = batch.to_address(company, contact)
+        to_note = f" [dim](To: {to})[/dim]" if to else " [yellow](To: blank -- no published address on file)[/yellow]"
+        who = contact.name if contact else "the team"
+        console.print(f"[green]{company.name}[/green] -- {who} [{d['kind']}]: {message.subject}{to_note}")
+    console.print(
+        f"\n[bold]{len(created)}[/bold] Gmail draft(s) created. Review and send each one yourself. "
+        f"{daily_cap.remaining_today(conn)} left today."
+    )
+
+
+def cmd_auth(args: argparse.Namespace) -> None:
+    """Sign in to Google again, this time also granting read access, so the
+    bot can notice replies by itself. Opens a browser window."""
+    gmail_client.run_consent_flow(gmail_client.ALL_SCOPES)
+    console.print(
+        "[green]Done.[/green] The bot can now send drafts you approve and watch those threads for replies. "
+        "Restart the bot if it's running."
+    )
+
+
 def cmd_list(args: argparse.Namespace) -> None:
     conn = db.get_connection()
     db.init_db(conn)
-    rows = conn.execute("SELECT * FROM messages ORDER BY created_at DESC").fetchall()
-    if not rows:
+    messages = db.list_messages(conn)
+    if not messages:
         console.print("[yellow]No drafts created yet.[/yellow]")
         return
     companies_by_id = {c.id: c.name for c in db.list_companies(conn)}
@@ -129,16 +158,16 @@ def cmd_list(args: argparse.Namespace) -> None:
     table.add_column("Subject")
     table.add_column("Status")
     table.add_column("Gmail draft id")
-    for row in rows:
+    for m in messages:
         table.add_row(
-            row["created_at"],
-            companies_by_id.get(row["company_id"], "?"),
-            row["subject"],
-            row["status"],
-            row["gmail_draft_id"] or "",
+            m.created_at,
+            companies_by_id.get(m.company_id, "?"),
+            m.subject,
+            m.status,
+            m.gmail_draft_id or "",
         )
     console.print(table)
-    console.print(f"\n[bold]{len(rows)}[/bold] draft(s) shown. {daily_cap.remaining_today(conn)} left today.")
+    console.print(f"\n[bold]{len(messages)}[/bold] draft(s) shown. {daily_cap.remaining_today(conn)} left today.")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -154,6 +183,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="'referral' explicitly asks the contact to refer you or point you to the right person.",
     )
     p_draft.set_defaults(func=cmd_draft)
+
+    p_batch = sub.add_parser("batch", help="Draft cold pitches to the next N people not yet written to.")
+    p_batch.add_argument("--limit", type=int, default=5)
+    p_batch.set_defaults(func=cmd_batch)
+
+    p_auth = sub.add_parser("auth", help="Re-authorize Gmail with read access so replies are detected automatically.")
+    p_auth.set_defaults(func=cmd_auth)
 
     p_list = sub.add_parser("list", help="List drafts created so far.")
     p_list.set_defaults(func=cmd_list)

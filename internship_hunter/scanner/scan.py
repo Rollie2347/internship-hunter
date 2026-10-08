@@ -18,7 +18,7 @@ from rich.table import Table
 from internship_hunter import config, db
 from internship_hunter.models import Company, Posting
 from internship_hunter.notify import telegram_client
-from internship_hunter.scanner import ats_feeds, careers_fallback, filters
+from internship_hunter.scanner import ats_feeds, careers_fallback, eligibility, filters
 
 console = Console(width=120)
 
@@ -49,7 +49,9 @@ def scan_company(conn, company: Company) -> list[NewPosting]:
     new_postings: list[NewPosting] = []
     for raw in raw_postings:
         is_software = filters.is_software_role(raw.title, raw.text)
-        is_intern = filters.is_intern_or_junior(raw.title)
+        # A posting that says it's open to high school students counts even if
+        # its title never says "intern".
+        is_intern = filters.is_intern_or_junior(raw.title) or eligibility.welcomes_high_schoolers(raw.text)
         clearance = filters.requires_clearance(raw.text, raw.title)
         citizenship = filters.requires_citizenship(raw.text, raw.title)
         skill_match = filters.classify_skill_match(raw.title, raw.text)
@@ -70,14 +72,23 @@ def scan_company(conn, company: Company) -> list[NewPosting]:
         posting_id, is_new = db.upsert_posting(conn, posting)
         if is_new:
             posting.id = posting_id
-            worth = filters.worth_notifying(is_software, is_intern, clearance, skill_match)
+            # Only worth a notification if it's somewhere he'd work (Colorado /
+            # Virginia) and its own text doesn't rule him out (e.g. "must be
+            # enrolled in a bachelor's program").
+            screened = eligibility.screen_text(raw.text)
+            worth = (
+                filters.worth_notifying(is_software, is_intern, clearance, skill_match)
+                and filters.location_rank(raw.location) <= config.QUEUE_MAX_LOCATION_RANK
+                and not (screened and screened.verdict == "not_eligible")
+            )
             new_postings.append(NewPosting(company=company, posting=posting, worth_notifying=worth))
     return new_postings
 
 
 def run_scan(conn) -> list[NewPosting]:
     all_new: list[NewPosting] = []
-    companies = db.list_companies(conn)
+    # "My network" is where people he already knows are filed, not a company.
+    companies = [c for c in db.list_companies(conn) if c.name != config.NETWORK_COMPANY_NAME]
     for company in companies:
         all_new.extend(scan_company(conn, company))
     return all_new

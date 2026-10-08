@@ -30,6 +30,10 @@ from internship_hunter import config, db
 from internship_hunter.models import Company
 
 SEED_DATA_PATH = Path(__file__).resolve().parent / "seed_data.json"
+# The 2026-10-07 bulk expansion (out-of-Wisconsin startups, space companies,
+# government programs). Kept apart from the hand-verified starter list
+# because every entry in it is still marked needs_verification.
+SEED_EXPANSION_PATH = Path(__file__).resolve().parent / "seed_expansion.json"
 
 console = Console(width=120)
 
@@ -82,6 +86,8 @@ def cmd_load_seed(args: argparse.Namespace) -> None:
     conn = db.get_connection()
     db.init_db(conn)
     added, skipped = load_seed(conn)
+    more_added, more_skipped = load_seed(conn, SEED_EXPANSION_PATH)
+    added, skipped = added + more_added, skipped + more_skipped
     console.print(f"[green]Added {added} companies.[/green] Skipped {skipped} already in the database.")
 
 
