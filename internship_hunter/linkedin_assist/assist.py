@@ -71,6 +71,40 @@ def link_for(contact: Contact, company: Company) -> str:
     return contact.linkedin_url or search_url(contact.name, company.name)
 
 
+# --- Notes on or off ---------------------------------------------------
+# A free LinkedIn account only gets a few connection notes a month. When
+# they run out (LinkedIn says "You're out of free custom notes"), he sends
+# /notes off: cards then say to connect WITHOUT a note, no note is drafted,
+# and the real message is written once the person accepts -- LinkedIn lets
+# you message a connection freely, and that message can be much longer
+# than a 200-character note. /notes on switches back when the month resets.
+
+def notes_enabled(conn) -> bool:
+    return db.get_meta(conn, "linkedin_notes") != "off"
+
+
+def set_notes_enabled(conn, enabled: bool) -> None:
+    db.set_meta(conn, "linkedin_notes", "on" if enabled else "off")
+
+
+def build_no_note_card_text(message_id: int, company: Company, contact: Contact, hiring: str = "") -> str:
+    """The card when notes are off: who, why, and what to do."""
+    why = f"Why them: {contact.fact}\nSource: {contact.source_url}" if contact.fact else (
+        f"Why them: {company.name} builds {company.what_they_build}"
+    )
+    lines = [
+        f"\U0001F91D LinkedIn #{message_id}",
+        f"{contact.name} — {contact.title or 'title unknown'}, {company.name}",
+        why,
+        *([hiring] if hiring else []),
+        "",
+        "You're out of free notes, so send this request WITHOUT a note: tap the button, check it's the "
+        "right person, press Connect, then tap Sent on LinkedIn.",
+        "When they accept, tap Accepted and I'll draft your first message to them - a full one, not 200 characters.",
+    ]
+    return "\n".join(lines)
+
+
 # --- The daily cap ---------------------------------------------------------
 
 def cards_today(conn) -> int:
@@ -155,10 +189,13 @@ He will paste it himself. Follow these rules exactly:
 1. Under {max_chars} characters in total, counting spaces.
 2. Thank them briefly, then say what he is after: a year-long, in-person software internship so \
 he can learn from people doing this work, and that he is 15 and in high school.
-3. Use the exact "Availability" fact given below (light rewording for flow is fine, but never \
-change the hours, dates or age it states).
+3. Do NOT mention work-hour limits, labor rules for his age, part-time or full-time, or when he \
+turns 16. He asked for this himself: that is for a conversation, not a first message. Still say \
+plainly that he is 15, and never say or imply anything about when he can work that contradicts \
+the "Background only" fact below.
 4. Include exactly ONE link to one of his real projects, copied character-for-character from the \
-profile. Never invent or alter a URL.
+profile. Never invent or alter a URL. Then add one short clause saying he has built other projects too and would be glad \
+to show them -- once, without listing them.
 5. End with ONE clear, low-pressure ask: whether they'd be open to a 15-minute call, or could point \
 him to whoever handles internships. Not both.
 6. Only use what is written below about the person and company. His voice: direct and specific, \
@@ -221,8 +258,12 @@ def draft_reply(client, profile_text: str, resume_text: str, company: Company, c
         f"=== His resume ===\n{resume_text}\n\n"
         f"=== Who it is for ===\n{who}Company: {company.name}\nWhat the company builds: {company.what_they_build}\n"
         + (f"Fact about them: {contact.fact}\n" if contact and contact.fact else "")
-        + f"\n=== The connection note he already sent them ===\n{note}\n\n"
-        f"=== Availability (use this fact, don't recompute it) ===\n{config.availability_statement()}"
+        + (
+            f"\n=== The connection note he already sent them ===\n{note}\n\n" if note.strip() else
+            "\n=== No note went with his connection request ===\nThis message is the first thing they "
+            "hear from him, so it has to introduce him: start with who he is, not with thanks alone.\n\n"
+        )
+        + f"=== Background only -- never put any of this in the message ===\n{config.availability_statement()}"
     )
     response = client.messages.parse(
         model=config.DRAFTING_MODEL, max_tokens=config.MAX_OUTPUT_TOKENS,
@@ -235,20 +276,22 @@ def draft_reply(client, profile_text: str, resume_text: str, company: Company, c
 # --- Cards and buttons ----------------------------------------------------
 
 def card_buttons(message_id: int, link: str = "", name: str = "") -> list[list[tuple[str, str]]]:
-    """Under the note. The first button is a plain link to the LinkedIn
-    search (or the profile he pasted): he taps it and his phone opens it.
-    The bot itself still never requests that address."""
+    """Under the note. The first button, "Connect with ... on LinkedIn",
+    is a plain link to the LinkedIn search (or the profile he pasted): he
+    taps it, his phone opens LinkedIn at that person, and he presses
+    LinkedIn's own Connect. The bot itself never requests that address
+    and cannot press Connect for him."""
     rows = [
         [("✅ Sent on LinkedIn", f"li_sent:{message_id}")],
         [("Skip", f"li_skip:{message_id}"), ("Not found", f"li_nf:{message_id}")],
     ]
     if link:
-        rows.insert(0, [(f"\U0001F50E Find {name or 'them'} on LinkedIn", link)])
+        rows.insert(0, [(f"\U0001F517 Connect with {name or 'them'} on LinkedIn", link)])
     return rows
 
 
 def replied_buttons(message_id: int) -> list[list[tuple[str, str]]]:
-    return [[("\U0001F4AC Replied", f"li_replied:{message_id}")]]
+    return [[("\U0001F4AC Accepted or replied", f"li_replied:{message_id}")]]
 
 
 def build_card_text(

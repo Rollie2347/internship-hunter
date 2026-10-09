@@ -42,14 +42,22 @@ def to_address(company: Company, contact: Optional[Contact]) -> Optional[str]:
 
 
 def next_contacts(conn, limit: int, any_state: bool = False) -> list[tuple[Company, Contact]]:
-    """People to email next, in outreach/priority.py's order. Only someone
-    with a real address to send to:
-      - a person whose own email is published, or
+    """People to email next, in outreach/priority.py's order. Only where
+    there is a real, published address to send to:
+      - a person whose own email is published;
       - a person he couldn't find on LinkedIn, at a company that publishes
-        an inbox (careers@, info@).
-    Everyone else is reached by LinkedIn first (linkedin_assist) -- a draft
-    with a blank "To" helps nobody. Only Colorado/Virginia companies
-    unless any_state."""
+        an inbox (careers@, info@);
+      - ONE email per company to its published inbox, when nobody there
+        has an address of their own and that inbox hasn't been written to
+        yet. It is addressed to the best-placed person on file (so whoever
+        reads the inbox can pass it on), or to the team if nobody is on
+        file -- the Contact in the returned pair is then None. Added
+        2026-10-08, when he ran out of free LinkedIn notes and asked for
+        more email. One per company because five notes to the same info@
+        would be spam.
+    Everyone else is reached by LinkedIn (linkedin_assist) -- a draft with a
+    blank "To" helps nobody. Only Colorado/Virginia companies unless
+    any_state."""
     # One channel per person: anyone with a LinkedIn card is left alone here
     # too -- unless he couldn't find them on LinkedIn, when email is what's left.
     already_written = {
@@ -59,13 +67,24 @@ def next_contacts(conn, limit: int, any_state: bool = False) -> list[tuple[Compa
     not_on_linkedin = {
         m.contact_id for m in db.list_messages(conn) if m.channel == "linkedin" and m.status == "not_found"
     }
-    per_company = [
-        (company, priority.by_role([
-            c for c in db.list_contacts(conn, company_id=company.id)
+    inboxes_used = {m.to_email for m in db.list_messages(conn) if m.channel == "email" and m.to_email}
+    per_company = []
+    for company in priority.companies_in_order(conn, any_state):
+        if company.name == config.NETWORK_COMPANY_NAME:
+            continue
+        everyone = db.list_contacts(conn, company_id=company.id)
+        picks = priority.by_role([
+            c for c in everyone
             if c.id not in already_written and (c.email or (c.id in not_on_linkedin and company.contact_email))
-        ]))
-        for company in priority.companies_in_order(conn, any_state)
-    ]
+        ])
+        if not picks and company.contact_email and company.contact_email not in inboxes_used \
+                and not any(c.email for c in everyone):
+            free = priority.by_role([c for c in everyone if c.id not in already_written])
+            if free:
+                picks = [free[0]]
+            elif not everyone:
+                picks = [None]   # nobody on file: a note to the team
+        per_company.append((company, picks))
     return priority.round_robin(per_company, limit)
 
 

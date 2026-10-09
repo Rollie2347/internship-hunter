@@ -2,11 +2,12 @@
 profile -- never invented experience, never a fabricated project link,
 never a hidden age or hours. See CLAUDE.md constraints 1, 2, and 5.
 
-The model never decides the hours-availability framing (compose it wrong
-once and a message states an inaccurate legal fact) -- config.availability_
-statement() computes that from the real date and STUDENT_TURNS_16, and gets
-handed to the model as a fact to use, the same pattern as Phase 3 attaching
-source_url itself rather than trusting the model to report it.
+Since 2026-10-08 the emails no longer talk about his work-hour limits: the
+student asked for that (they belong in a conversation, not a first email).
+Every email still says he is 15. config.availability_statement() is still
+handed to the model, as background it must not contradict -- so a draft can
+never claim he is free full-time today -- but it is told not to write any
+of it into the message.
 """
 
 from __future__ import annotations
@@ -41,9 +42,12 @@ job title repeated back to them. Tie it to what he wants to learn.
 4. Link exactly ONE project from the "Projects" section of the profile as proof of real work. \
 Copy its URL character-for-character from the profile text. If the most relevant project has \
 no real URL in the profile text (e.g. marked TODO), pick a different project that does have a \
-real URL instead -- never invent, guess, or alter a URL.
-5. Include the exact "Availability" sentence given to you below, almost verbatim (light \
-rewording for flow is fine, but never change the hours, dates, or age it states).
+real URL instead -- never invent, guess, or alter a URL. Then add one short clause saying he has built other projects too and would be glad \
+to show them -- once, without listing them.
+5. Do NOT mention work-hour limits, labor rules for his age, part-time or full-time, or when he \
+turns 16. He asked for this himself: that is for a conversation, not a first message. Still say \
+plainly that he is 15, and never say or imply anything about when he can work that contradicts \
+the "Background only" fact below.
 6. End with exactly ONE clear, low-commitment ask. An "Ask type" is given to you below -- honor \
 it exactly: "call" means ask for a brief 15-minute call; "resume" means ask if he can send his \
 resume; "referral" means ask if they could refer him internally or point him to whoever handles \
@@ -99,7 +103,7 @@ def build_user_content(
         f"=== His profile (about_me.md) ===\n{profile_text}\n\n"
         f"=== His resume ===\n{resume_text}\n\n"
         f"=== Who this email is for ===\n{target_context}\n\n"
-        f"=== Availability (use this fact, don't recompute it) ===\n{config.availability_statement()}\n\n"
+        f"=== Background only -- never put any of this in the message ===\n{config.availability_statement()}\n\n"
         f"=== Ask type ===\n{ask_type}"
     )
     if follow_up_context:

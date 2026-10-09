@@ -35,9 +35,12 @@ he wants to learn -- the kind of work this person or company does.
 3. Mention ONE specific thing about this person's or company's work, taken only from the facts \
 below. Never add anything that isn't written there.
 4. Include exactly ONE link to one of his real projects, copied character-for-character from the \
-profile. Never invent or alter a URL.
-5. Include the "Availability" fact given below (light rewording is fine; never change the hours, \
-dates or age).
+profile. Never invent or alter a URL. Then add one short clause saying he has built other projects too and would be glad \
+to show them -- once, without listing them.
+5. Do NOT mention work-hour limits, labor rules for his age, part-time or full-time, or when he \
+turns 16. He asked for this himself: that is for a conversation, not a first message. Still say \
+plainly that he is 15, and never say or imply anything about when he can work that contradicts \
+the "Background only" fact below.
 6. End with ONE ask: a 15-minute call to ask about their work. He says he is looking for an \
 internship, but he does not ask this person to give him one or to refer him.
 7. His voice: direct, specific, a little technical. No buzzwords, no exclamation marks.
@@ -52,10 +55,13 @@ Follow these rules exactly:
 3. Say what he is looking for: a year-long, in-person software internship at a defense-tech, \
 robotics or AI company in Colorado or Virginia, where he has family to live with -- and that the \
 point of it is to learn from people doing that work.
-4. Include the "Availability" fact given below (light rewording is fine; never change the hours, \
-dates or age).
+4. Do NOT mention work-hour limits, labor rules for his age, part-time or full-time, or when he \
+turns 16. He asked for this himself: that is for a conversation, not a first message. Still say \
+plainly that he is 15, and never say or imply anything about when he can work that contradicts \
+the "Background only" fact below.
 5. Mention ONE of his real projects in a few words, with its link copied character-for-character \
-from the profile. Never invent a project or a URL.
+from the profile. Never invent a project or a URL. Then add one short clause saying he has built other projects too and would be glad \
+to show them -- once, without listing them.
 6. The ask is NOT for a job. Ask ONE thing: whether they know anyone working in that world he \
 should talk to, and if so whether they'd be willing to introduce him.
 7. Plain text only, no placeholders like [Name]."""
@@ -80,7 +86,7 @@ def draft_message(client, profile_text: str, resume_text: str, company: Company,
         f"=== His profile (about_me.md) ===\n{profile_text}\n\n"
         f"=== His resume ===\n{resume_text}\n\n"
         f"=== Who it is for ===\n{who}\n"
-        f"=== Availability (use this fact, don't recompute it) ===\n{config.availability_statement()}"
+        f"=== Background only -- never put any of this in the message ===\n{config.availability_statement()}"
     )
     system = (WARM_SYSTEM_PROMPT if warm else FALLBACK_SYSTEM_PROMPT).format(max_words=config.PASTE_MESSAGE_MAX_WORDS)
     response = client.messages.parse(

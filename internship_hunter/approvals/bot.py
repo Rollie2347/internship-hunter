@@ -9,12 +9,13 @@ postings but to turn the right people into people who will vouch for him.
 What it does, in a loop:
   1. Once a day: at 6 AM reads the job boards (only as a "who is hiring"
      signal) and looks for people at companies it hasn't checked yet; at
-     7 AM (DAILY_RUN_HOUR) puts OUTREACH_PER_DAY (10) people in front of him -- follow-ups that are
-     due first, then an email draft for anyone with a published address,
-     then LinkedIn cards (a search link + a note he pastes himself; the
-     bot never touches linkedin.com -- see linkedin_assist/) -- then the
-     status update. Application cards are no longer sent daily: only when
-     he asks (/more, /apply).
+     7 AM (DAILY_RUN_HOUR) puts up to OUTREACH_PER_DAY (10) people in front of him, by email
+     only (since 2026-10-09) -- follow-ups that are due first, then an
+     email draft for anyone with a published address -- then the status
+     update. LinkedIn cards (a search link + a note he pastes himself; the
+     bot never touches linkedin.com -- see linkedin_assist/) and
+     application cards are sent only when he asks (/linkedin, /li, /more,
+     /apply).
   1b. Every few minutes: checks the threads of emails he has sent for a
      reply or a bounce (only if he granted Gmail read access).
   2. Waits for a button tap or a command (long polling -- see
@@ -51,11 +52,12 @@ from internship_hunter.scanner import eligibility
 MAX_SCREENED_PER_RUN = 60  # postings whose requirements may be read in one go
 
 HELP_TEXT = (
-    "Every day I send you 5 people to write to. Extra, when you want it:\n\n"
+    "Every day I send you up to 10 people to email. Extra, when you want it:\n\n"
     "People:\n"
     "/warm Name, how you know them, where they work - someone you already know; I draft a note asking who you should talk to\n"
     "/li <profile link> Name, Title, Company - someone you found on LinkedIn yourself\n"
     "/linkedin [n] - n more LinkedIn cards (default 5)\n"
+    "/notes off|on - out of free LinkedIn notes? off = connect without a note, I draft the message once they accept\n"
     "/pitch [n] - n more emails: follow-ups due, then people with a published address (default 5)\n"
     "/to <draft id> <email> - put an address on an email draft that has none\n"
     "/status - the pipeline: contacted, replied, calls, referrals\n\n"
@@ -290,6 +292,24 @@ def send_linkedin_card(conn, client, company, contact, send, profile=None) -> bo
     makes no API call) once today's LinkedIn cap is used up."""
     if linkedin.remaining_today(conn) <= 0:
         return False
+    if not linkedin.notes_enabled(conn):
+        # Out of free notes (/notes off): connect without one. Nothing to draft
+        # now; the real message is written when they accept.
+        message = linkedin.new_card(conn, company, contact, "")
+        try:
+            send(
+                linkedin.build_no_note_card_text(
+                    message.id, company, contact, hiring=priority.hiring_line(company, priority.hiring_now(conn)),
+                ),
+                reply_markup=telegram_client.inline_keyboard(
+                    linkedin.card_buttons(message.id, link=linkedin.link_for(contact, company), name=contact.name)
+                ),
+            )
+        except Exception:
+            conn.execute("DELETE FROM messages WHERE id = ?", (message.id,))
+            conn.commit()
+            raise
+        return True
     profile_text, resume_text = profile or batch.read_profile()
     note = linkedin.draft_note(client, profile_text, resume_text, company, contact)
     message = linkedin.new_card(conn, company, contact, note)
@@ -749,29 +769,43 @@ def apply_through_link(conn, url: str, send=telegram_client.send_message, client
 
 
 def send_daily_outreach(conn, send=telegram_client.send_message) -> int:
-    """Today's people: OUTREACH_PER_DAY (5) in all. Email follow-ups that
-    are due and anyone with a published address first, then LinkedIn cards
-    for the rest. Returns how many were sent."""
-    sent = 0
-    # Each half on its own: on the first live run something in the email
-    # half failed after one draft and took the LinkedIn cards down with it.
-    for label, step in (("emails", send_drafts), ("LinkedIn cards", send_linkedin_cards)):
-        try:
-            sent += step(conn, daily_cap.outreach_remaining(conn), send)
-        except Exception as exc:  # noqa: BLE001
-            traceback.print_exc()  # lands in data/bot.log
-            send(f"Couldn't prepare today's {label}: {exc}")
+    """Today's people: up to OUTREACH_PER_DAY (10), by email only -- follow-ups
+    that are due, then anyone with a published address. No LinkedIn cards
+    here any more (the student asked for email only on 2026-10-09: no
+    Premium, so no notes); /linkedin and /li still make cards when he asks.
+    Returns how many were sent."""
+    try:
+        sent = send_drafts(conn, daily_cap.outreach_remaining(conn), send)
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()  # lands in data/bot.log
+        send(f"Couldn't prepare today's emails: {exc}")
+        return 0
+    if sent == 0 and daily_cap.outreach_remaining(conn) > 0:
+        send("No emails today: no follow-up is due and nobody left on file has a published address. "
+             "Find more addresses: python -m internship_hunter.people.cli hunter --limit 5\n"
+             "/linkedin sends LinkedIn cards if you want them.")
     return sent
 
 
-def find_emails_with_hunter(conn, limit: int = 1) -> int:
-    """One Hunter.io domain lookup a day, if a key is set -- slow enough to
-    stay inside the free plan's month. Returns how many addresses were stored."""
+def find_emails_with_hunter(conn, limit: int = 5) -> int:
+    """Hunter.io domain lookups, if a key is set: one company at a time
+    until there are OUTREACH_PER_DAY (10) people to email today, and never
+    more than `limit` a day. None at all when the queue is already full, so
+    the free plan's month isn't spent early. Returns how many addresses
+    were stored."""
     from internship_hunter.people import hunter
 
     if not config.HUNTER_API_KEY:
         return 0
-    return sum(len(stored) for _, stored in hunter.run(conn, limit))
+    stored = 0
+    for _ in range(limit):
+        if len(batch.next_contacts(conn, config.OUTREACH_PER_DAY)) >= config.OUTREACH_PER_DAY:
+            break
+        results = hunter.run(conn, 1)
+        if not results:  # every company looked up, or the month's searches are gone
+            break
+        stored += sum(len(found) for _, found in results)
+    return stored
 
 
 def find_people_on_the_web(conn, limit: int | None = None) -> int:
@@ -819,6 +853,15 @@ def handle_command(conn, text: str, send=telegram_client.send_message) -> None:
         set_draft_address(conn, parts, send)
     elif command == "/li":
         add_linkedin_person(conn, text, send)
+    elif command == "/notes":
+        choice = parts[1].lower() if len(parts) > 1 else ""
+        if choice in ("on", "off"):
+            linkedin.set_notes_enabled(conn, choice == "on")
+        send(
+            "LinkedIn notes are ON: each card comes with a note to paste." if linkedin.notes_enabled(conn) else
+            "LinkedIn notes are OFF: cards say to connect without a note, and I draft your first message when "
+            "they accept. Send /notes on when LinkedIn gives you notes again (the free ones reset monthly)."
+        )
     elif command == "/warm":
         add_warm_person(conn, text, send)
     elif command == "/apply":

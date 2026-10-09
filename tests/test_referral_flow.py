@@ -167,7 +167,7 @@ def test_a_posting_not_seen_lately_is_no_longer_a_signal(conn):
 
 # --- five a day, the right channel for each ----------------------------------
 
-def test_the_daily_batch_is_five_people_email_where_published_linkedin_otherwise(conn, profile, gmail, monkeypatch):
+def test_the_daily_batch_is_email_only_and_never_a_linkedin_card(conn, profile, gmail, monkeypatch):
     company = add_company(conn)
     add_contact(conn, company, "A Email", email="a.email@foo.example")
     for i in range(8):
@@ -175,30 +175,56 @@ def test_the_daily_batch_is_five_people_email_where_published_linkedin_otherwise
     outbox, client = Outbox(), NoteClient()
     monkeypatch.setattr(bot, "_anthropic_client", lambda: client)
 
-    assert bot.send_daily_outreach(conn, outbox) == 5
+    assert bot.send_daily_outreach(conn, outbox) == 1
 
-    by_channel = [m.channel for m in db.list_messages(conn)]
-    assert by_channel.count("email") == 1 and by_channel.count("linkedin") == 4
+    assert [m.channel for m in db.list_messages(conn)] == ["email"]
     assert gmail.to == ["a.email@foo.example"]          # never a blank "To"
     assert gmail.asks == ["call"]                        # a first note asks for a call, not a job
-    assert daily_cap.outreach_remaining(conn) == 0
-    assert bot.send_daily_outreach(conn, outbox) == 0    # nothing more arrives on its own today
 
-    # ...but he can still ask for more himself, up to the hard caps.
+    # Nobody else has a published address: he is told why, and gets no card.
+    assert bot.send_daily_outreach(conn, outbox) == 0
+    assert "No emails today" in outbox.sent[-1][0]
+    assert [m.channel for m in db.list_messages(conn)] == ["email"]
+
+    # ...but he can still ask for LinkedIn cards himself, up to the hard caps.
     assert bot.send_linkedin_cards(conn, 2, send=outbox, client=client) == 2
 
 
-def test_a_failure_in_the_email_half_does_not_stop_the_linkedin_cards(conn, profile, monkeypatch):
+def test_a_failure_in_the_emails_is_reported_and_sends_no_linkedin_cards(conn, profile, monkeypatch):
     company = add_company(conn)
     add_contact(conn, company, "A One")
     monkeypatch.setattr(bot, "_anthropic_client", lambda: NoteClient())
     monkeypatch.setattr(bot, "send_drafts", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("gmail down")))
     outbox = Outbox()
 
-    assert bot.send_daily_outreach(conn, outbox) == 1
+    assert bot.send_daily_outreach(conn, outbox) == 0
 
     assert "Couldn't prepare today's emails: gmail down" in outbox.sent[0][0]
-    assert [m.channel for m in db.list_messages(conn)] == ["linkedin"]
+    assert db.list_messages(conn) == []
+
+
+def test_hunter_looks_companies_up_until_there_are_enough_people_to_email(conn, monkeypatch):
+    from internship_hunter.people import hunter
+
+    monkeypatch.setattr(config, "HUNTER_API_KEY", "test-key")
+    monkeypatch.setattr(config, "OUTREACH_PER_DAY", 2)
+    company, lookups = add_company(conn), []
+
+    def fake_run(conn, limit):
+        lookups.append(limit)
+        add_contact(conn, company, f"New{len(lookups)} Person{len(lookups)}", email=f"new{len(lookups)}@foo.example")
+        return [(company, [("someone", "an address", "a source")])]
+
+    monkeypatch.setattr(hunter, "run", fake_run)
+
+    assert bot.find_emails_with_hunter(conn) == 2
+    assert lookups == [1, 1]                           # one company at a time, and it stopped at two people
+    assert bot.find_emails_with_hunter(conn) == 0      # the queue is full: no search is spent
+    assert lookups == [1, 1]
+
+    monkeypatch.setattr(config, "OUTREACH_PER_DAY", 50)
+    monkeypatch.setattr(hunter, "run", lambda conn, limit: [])   # nothing left to look up
+    assert bot.find_emails_with_hunter(conn) == 0
 
 
 def test_the_days_people_go_out_at_seven_and_the_slow_prep_an_hour_before(conn, profile, monkeypatch):
@@ -242,7 +268,7 @@ def test_the_daily_run_sends_people_and_no_application_cards(conn, profile, gmai
     assert bot.run_daily(conn, send=outbox, today=date(2026, 10, 8)) is True
 
     assert db.list_applications(conn) == []
-    assert [m.channel for m in db.list_messages(conn)] == ["linkedin"]
+    assert db.list_messages(conn) == []   # A One has no published address, and no card is sent on its own
     assert "the referral pipeline" in outbox.sent[-1][0]
 
 
@@ -266,7 +292,10 @@ def test_not_found_with_no_published_inbox_gives_a_contact_form_note(conn, profi
     note = next(m for m in db.list_messages(conn) if m.channel == "other")
     text, markup = outbox.sent[0]
     assert f"Note #{note.id}" in text and "contact form" in text and "https://foo.example" in text and note.body in text
+    # The hours fact is background the model may not contradict -- and may not write into the note.
     assert config.availability_statement() in client.calls[0]["messages"][0]["content"]
+    assert "Do NOT mention work-hour limits" in client.calls[0]["system"]
+    assert "other projects too" in client.calls[0]["system"]
     assert [b["callback_data"] for b in markup["inline_keyboard"][0]] == [f"li_sent:{note.id}", f"li_skip:{note.id}"]
     assert daily_cap.outreach_today(conn) == 1          # the second try at the same person is free
 
@@ -451,3 +480,45 @@ def test_apply_with_an_unknown_link_or_an_existing_application_makes_no_card(con
 
     bot.handle_command(conn, "/apply", outbox)
     assert "Usage: /apply" in outbox.sent[-1][0]
+
+
+# --- more email: one note per company to its published inbox ----------------
+
+def test_a_company_with_a_published_inbox_gets_one_email_and_the_rest_get_linkedin(conn, profile, gmail, monkeypatch):
+    company = add_company(conn)
+    db.set_company_contact_email(conn, company.id, "careers@foo.example")
+    for name, title in [("Amy Staff", "Chief of Staff"), ("Zed Coder", "Software Engineer"), ("Bob Boss", "CEO")]:
+        contact = add_contact(conn, company, name)
+        conn.execute("UPDATE contacts SET title = ? WHERE id = ?", (title, contact.id))
+    conn.commit()
+
+    picked = batch.next_contacts(conn, 10)
+    assert [c.name for _, c in picked] == ["Zed Coder"]            # one email, to the best-placed person
+
+    outbox = Outbox()
+    assert bot.send_drafts(conn, 10, send=outbox, client=object(), service=object()) == 1
+    assert gmail.to == ["careers@foo.example"]
+    assert "the company's published inbox, not a personal address" in outbox.sent[0][0]
+
+    # That inbox is used now: nobody else there is emailed to it, and the other two get LinkedIn cards.
+    assert batch.next_contacts(conn, 10) == []
+    assert sorted(c.name for _, c in linkedin.next_contacts(conn, 10)) == ["Amy Staff", "Bob Boss"]
+
+
+def test_an_inbox_email_goes_to_the_team_when_nobody_is_on_file(conn, profile, gmail):
+    company = add_company(conn)
+    db.set_company_contact_email(conn, company.id, "info@foo.example")
+    assert [(c.id, person) for c, person in batch.next_contacts(conn, 10)] == [(company.id, None)]
+
+    outbox = Outbox()
+    assert bot.send_drafts(conn, 10, send=outbox, client=object(), service=object()) == 1
+    assert gmail.to == ["info@foo.example"] and "the team" in outbox.sent[0][0]
+    assert batch.next_contacts(conn, 10) == []
+
+
+def test_no_inbox_email_when_someone_there_has_their_own_address(conn, profile):
+    company = add_company(conn)
+    db.set_company_contact_email(conn, company.id, "info@foo.example")
+    own = add_contact(conn, company, "A Own", email="a.own@foo.example")
+    add_contact(conn, company, "B None")
+    assert [c.id for _, c in batch.next_contacts(conn, 10)] == [own.id]

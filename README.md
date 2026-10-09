@@ -15,13 +15,15 @@ applications. It works one pipeline:
 
 Leave the bot running: in a PowerShell window, `cd C:\Users\rro\Documents\internship-hunter`
 then `.\start_bot.ps1` (see "Keeping the bot running").
-Every day at **7 AM** (`DAILY_RUN_HOUR` in `.env`) it sends you **ten people** to write to (`OUTREACH_PER_DAY` in `.env`), about
-20-30 minutes of work. It prepares them on its own; nothing goes out until you tap or paste:
+Every day at **7 AM** (`DAILY_RUN_HOUR` in `.env`) it sends you **up to ten people** to email (`OUTREACH_PER_DAY` in `.env`), about
+20-30 minutes of work. Since 2026-10-09 the daily batch is **email only**, so it is smaller
+(or empty, with a message saying so) when few people on file have a published address --
+Hunter.io, below, finds more. It prepares them on its own; nothing goes out until you tap or paste:
 
 | What arrives | When | What you do |
 |---|---|---|
-| Email draft | the person has a published email | read it, tap **Send now** |
-| LinkedIn card | everyone else | open the link, paste the note, tap **Sent on LinkedIn** |
+| Email draft | the person has a published email, or their company publishes an inbox (one email per company inbox) | read it, tap **Send now** |
+| LinkedIn card | only when you send `/linkedin` or `/li` | open the link, paste the note, tap **Sent on LinkedIn** |
 | Contact-form note | you tapped **Not found** and the company publishes no inbox | paste it into the company's contact form, tap **I sent it** |
 | Follow-up draft | an email got no reply in 7 days | read it, tap **Send now** (one per person, ever) |
 
@@ -257,7 +259,10 @@ Finder and its "pattern" guess are never used (a test checks the code can't
 reach either). Every answer is cached, each domain is looked up once, and
 searches stop at `HUNTER_MONTHLY_LIMIT` a month (default 25 -- set it to
 what your plan allows). This sends your target companies' domain names to
-Hunter, nothing else.
+Hunter, nothing else. With a key set, the bot also looks up to 5 companies a
+day on its own at 6 AM, until ten people are waiting to be emailed. Hunter
+matches by domain, so now and then it returns someone who never worked
+there -- look at the source page if a name seems off.
 
 **Deduplication** (`people/dedupe.py`): every source stores people through
 one function. Inside one company, two names are the same person when the
@@ -425,8 +430,9 @@ automation. `linkedin_assist/assist.py` doesn't import an HTTP library at
 all, and a test fails if one is ever added. What you get is a card:
 
 - **The person** and **why them** (the stored fact, with its source link).
-- **A search link** built from their name + company. It's just text; you
-  tap it, and you check it's the right person.
+- **A "Connect with ... on LinkedIn" button** (and the same link as text),
+  built from their name + company. It opens LinkedIn at that person; you
+  check it's the right one and press LinkedIn's own Connect.
 - **A note** under 200 characters (your account's limit), sent as its own message so that pressing
   and holding it copies exactly the note: that you're 15, one specific thing about
   their work from the stored fact, one of your projects, and a soft ask.
@@ -439,6 +445,13 @@ After **Sent on LinkedIn** the card gets a **Replied** button. Tap it when
 they accept or write back, and the bot drafts a short next message (your
 real availability, one project link, one ask) for you to paste. If 7 days
 pass with nothing, you get one reminder, once.
+
+**Out of free notes?** A free LinkedIn account only gets a few connection
+notes a month. When LinkedIn says "You're out of free custom notes", send
+`/notes off`. Cards then tell you to connect *without* a note (no note is
+drafted), and when the person accepts you tap **Accepted or replied** and
+the bot drafts your first real message, which can be much longer than a
+200-character note. Send `/notes on` when the month resets.
 
 Someone you found yourself:
 
@@ -594,6 +607,24 @@ cd C:\Users\rro\Documents\internship-hunter
 
 `start_bot.ps1` has the three lines to register it as a Windows scheduled
 task so it starts whenever you sign in.
+
+**The bot only runs while the laptop is awake.** A sleeping laptop sends
+nothing at 7 AM; the batch arrives whenever it next wakes up. To keep it
+awake around the clock, leave it plugged in and run these once:
+
+```powershell
+# (the full path, because plain "powercfg" isn't found on this laptop)
+$p = "$env:SystemRoot\System32\powercfg.exe"
+& $p /change standby-timeout-ac 0      # never sleep while plugged in
+& $p /change hibernate-timeout-ac 0    # never hibernate while plugged in
+# Closing the lid does nothing while plugged in (the screen still turns off):
+& $p /setacvalueindex SCHEME_CURRENT SUB_BUTTONS LIDACTION 0
+& $p /setactive SCHEME_CURRENT
+```
+
+These were applied on 2026-10-09. On battery it still sleeps as before. To undo:
+`& $p /change standby-timeout-ac 5` and the `LIDACTION` line with `1` instead of `0`. Don't leave a closed,
+running laptop in a bag or on a bed -- it needs air.
 
 ## Moving the bot to another PC
 

@@ -116,9 +116,10 @@ def replace_draft(service, draft_id: str, subject: str, body: str, to_email: Opt
 def draft_recipient(service, draft_id: str) -> str:
     """The "To" address currently on a draft in Gmail -- which may differ
     from what we created if he edited the draft there. '' if none."""
-    draft = service.users().drafts().get(
-        userId="me", id=draft_id, format="metadata", metadataHeaders=["To"]
-    ).execute()
+    # drafts.get takes no metadataHeaders argument (messages.get does) -- passing
+    # one raised a TypeError that made Send now refuse every draft. Found live
+    # on 2026-10-08; the tests had only ever faked this function.
+    draft = service.users().drafts().get(userId="me", id=draft_id, format="metadata").execute()
     headers = draft.get("message", {}).get("payload", {}).get("headers", [])
     return next((parseaddr(h["value"])[1] for h in headers if h["name"].lower() == "to"), "")
 

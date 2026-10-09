@@ -213,7 +213,7 @@ def test_card_shows_the_person_why_the_link_the_note_and_three_buttons(conn, pro
     assert note_text == GOOD_NOTE and GOOD_NOTE not in text
     rows = markup["inline_keyboard"]
     # First button: a plain link he taps to open the search. Then the three taps the bot hears.
-    assert rows[0] == [{"text": "\U0001F50E Find Jane Doe on LinkedIn", "url": linkedin.search_url("Jane Doe", "Foo Robotics")}]
+    assert rows[0] == [{"text": "\U0001F517 Connect with Jane Doe on LinkedIn", "url": linkedin.search_url("Jane Doe", "Foo Robotics")}]
     assert [b["callback_data"] for row in rows[1:] for b in row] == [
         f"li_sent:{message.id}", f"li_skip:{message.id}", f"li_nf:{message.id}",
     ]
@@ -419,3 +419,32 @@ def test_status_reports_linkedin_separately_from_email(conn, profile):
 ])
 def test_linkedin_callbacks_parse(data, expected):
     assert queue.parse_callback(data) == expected
+
+
+# --- out of free notes -----------------------------------------------------
+
+def test_notes_off_sends_a_card_with_no_note_and_drafts_nothing_until_they_accept(conn, profile, monkeypatch):
+    company = add_company(conn)
+    add_contact(conn, company)
+    outbox, client = Outbox(), FakeClient("I'm Rollie, 15, in high school, looking for an internship to learn. https://example.com/argus")
+
+    bot.handle_command(conn, "/notes off", outbox)
+    assert "OFF" in outbox.sent[-1][0] and not linkedin.notes_enabled(conn)
+
+    assert bot.send_linkedin_cards(conn, 5, send=outbox, client=client) == 1
+    assert client.calls == []                                   # no note drafted, nothing spent
+    text, markup = outbox.sent[-1]
+    assert "WITHOUT a note" in text and "Jane Doe" in text and "Why them: Spoke about swarm autonomy" in text
+    assert markup["inline_keyboard"][0][0]["url"] == linkedin.search_url("Jane Doe", "Foo Robotics")
+    card = db.list_messages(conn)[0]
+    assert (card.channel, card.status, card.body) == ("linkedin", "drafted", "")
+
+    # He connects, they accept: the first real message is drafted then, and told it's the first contact.
+    _tap(conn, f"li_sent:{card.id}", outbox, monkeypatch)
+    monkeypatch.setattr(bot, "_anthropic_client", lambda: client)
+    _tap(conn, f"li_replied:{card.id}", outbox, monkeypatch)
+    assert "No note went with his connection request" in client.calls[0]["messages"][0]["content"]
+    assert "I'm Rollie, 15" in outbox.sent[-1][0]
+
+    bot.handle_command(conn, "/notes on", outbox)
+    assert linkedin.notes_enabled(conn)

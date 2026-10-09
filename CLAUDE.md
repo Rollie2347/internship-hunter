@@ -12,16 +12,37 @@ The student decided the application route doesn't work for a high schooler (near
 posting requires college enrollment) and that the tool should be built around referrals.
 - **The pipeline is: contacted -> replied -> call -> referred.** `/status` and the dashboard
   lead with those four numbers. Applications are a side tool.
-- **Ten people a day, at 7 AM** (`DAILY_RUN_HOUR`; the slow scan and people search run at 6 AM so the cards arrive on time) (`OUTREACH_PER_DAY`; the student set 5, then 10, on 2026-10-08). The
+- **Up to ten people a day, at 7 AM** -- or as soon after as the laptop is awake; it has to be
+  plugged in with sleep turned off to hit 7 AM (README, "Keeping the bot running") -- (`DAILY_RUN_HOUR`; the slow scan and people search run at 6 AM so the drafts arrive on time) (`OUTREACH_PER_DAY`; the student set 5, then 10, on 2026-10-08). The
   bot *prepares* ten on its own -- it never sends one: an email goes out only on his Send now
   tap, and a LinkedIn request only when he pastes it himself (constraints 4 and 5). Beyond the ten, `/pitch`, `/linkedin`, `/li` and `/warm` add more when he asks, up to the hard caps.
-- **One channel per person, picked by what is published:** a person with a published email
-  gets an email draft; everyone else gets a LinkedIn card; if he can't find them on LinkedIn
+- **Email only in the daily run** (the student asked for this on 2026-10-09: he has no
+  LinkedIn Premium, so no connection notes; on 2026-10-08 he had asked for "more email").
+  The 7 AM batch is email drafts and nothing else. **The target is ten emails every day**
+  (the student asked for this on 2026-10-09); a day falls short (with a message saying
+  why) only when fewer than ten people on file have a published address, so keeping that
+  supply up is part of the job: the 6 AM prep spends up to 5 Hunter lookups a day until
+  ten people are waiting (`find_emails_with_hunter`). Hunter matches by domain and can
+  return someone who was never at the company (a previous owner of the domain, a
+  placeholder name from an unrelated PDF) -- check the source page before trusting a row.
+  When Hunter's month runs out, tell him; a paid plan or the paid web search is his and
+  his parents' decision. A person with a
+  published email gets an email draft; a company that publishes an inbox (careers@, info@)
+  gets ONE email to it, addressed to the best-placed person on file or to the team, when
+  nobody there has an address of their own. LinkedIn cards are made only when he asks
+  (`/linkedin`, `/li`); if he then can't find the person on LinkedIn
   the bot drafts an email to the company's published inbox, or, if there is none, a note for
   the company's contact form (channel `other`). Never an email draft with a blank "To".
+  One channel per person still holds.
 - **People he already knows go first.** `/warm Name, how he knows them, where they work`
   stores them under the placeholder company "My network" and drafts a note asking who he
   should talk to -- not for a job.
+- **No hours talk in messages** (the student asked for this on 2026-10-08). Emails and notes
+  do not mention work-hour limits, labor rules, part-time vs full-time, or turning 16 -- that
+  is for a conversation. They still say plainly that he is 15 (constraint 1), and must never
+  say or imply he can work more than constraint 2 allows; before any offer is accepted he has
+  to tell the company his real hours. Each message also says, in one clause, that he has
+  other projects he'd be glad to show.
 - **The ask ladder.** Every note and email says plainly that he is looking for an internship
   **so he can learn** (the student asked for this on 2026-10-08) and names what he wants to
   learn. The ask itself stays small: a 15-minute call or a question about their work. He
@@ -138,7 +159,13 @@ The tool helps the student use LinkedIn by hand. It never uses LinkedIn itself.
   gets one reminder, once -- never an automatic email follow-up.
 - **One channel per person:** someone with a LinkedIn card isn't also cold-emailed (unless
   he marked them "Not found"), and someone already emailed gets no card.
-- **Cap:** at most 10 cards/day, within the 10 people a day the bot prepares on its own.
+- **Cap:** at most 10 cards/day. Since 2026-10-09 the bot makes no cards on its own; only
+  `/linkedin` and `/li` do.
+- **Out of free notes:** a free account gets only a few connection notes a month (he ran
+  out on 2026-10-08). `/notes off` makes cards say "connect without a note" and drafts
+  nothing until the person accepts; then "Accepted or replied" drafts his first full message.
+  `/notes on` switches back. Don't suggest extra accounts or other ways around LinkedIn's
+  limit; paying for Premium is a decision for him and his parents.
 - **Age:** LinkedIn's own minimum age is 16 and the student is 15 until April 2027. Whether
   he uses an account before then is his and his parents' decision, not the tool's; don't
   suggest ways around LinkedIn's sign-up age check.

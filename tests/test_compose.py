@@ -49,7 +49,7 @@ def test_build_user_content_includes_all_sections():
     assert "PROFILE_TEXT_MARKER" in content
     assert "RESUME_TEXT_MARKER" in content
     assert "TARGET_CONTEXT_MARKER" in content
-    assert "Availability" in content
+    assert "Background only" in content and "Availability (use this fact" not in content
     assert "referral" in content
 
 
@@ -91,6 +91,10 @@ def test_compose_email_calls_claude_with_expected_model_and_system_prompt():
     assert "150 words" in client.capture["system"]
     assert "15-year-old" in client.capture["system"]
     assert "internship so he can LEARN" in client.capture["system"]   # he asked for this
+    # Also his: no work-hour talk in the email, and a mention that he has other projects.
+    assert "Do NOT mention work-hour limits" in client.capture["system"]
+    assert "he has built other projects too" in client.capture["system"]
+    assert "Include the exact" not in client.capture["system"]
     assert client.capture["output_format"] is compose.DraftEmail
 
 
