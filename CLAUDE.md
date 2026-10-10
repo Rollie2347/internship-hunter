@@ -65,6 +65,10 @@ posting requires college enrollment) and that the tool should be built around re
 - `profile/my_answers.md` holds the student's own answers to application-form questions.
   It is his file: add new questions to it, record answers he picks himself, never overwrite
   an answer he typed, and never invent one.
+- **Talk about Argus, not Relio** (the student asked for this on 2026-10-09: Argus is an iOS
+  app and has more users). When a message needs a software/AI project or a link, it is
+  Argus; Relio is at most one of the "other projects". The rule is written at the top of
+  the Projects section of `profile/about_me.md`, which the drafter reads.
 - Fill in `profile/about_me.md` and put the resume at `profile/resume.pdf`. Read both before
   drafting anything, and never invent experience, skills, or credentials.
 - Owner email for tooling: set in `.env`, never hard-coded.

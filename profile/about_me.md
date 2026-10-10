@@ -33,6 +33,10 @@ between what AI systems are instructed to do and what they actually do (interpre
 
 ## Projects, ranked by relevance to defense tech
 
+**Which software project to talk about (my choice, 2026-10-09): Argus, not Relio.** When a
+message needs a software/AI project or a project link, use Argus -- it is an iOS app and has
+more users than Relio. Mention Relio only as one of the "other projects", never as the main one.
+
 1. **Autonomous Agricultural Hexacopter (2026).** I designed and built a heavy-lift hexacopter
    that carries two gallon drums and sprays liquid. I designed the power system end to end,
    built ground-station control instead of a conventional RC link, debugged failures by
